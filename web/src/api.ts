@@ -35,6 +35,7 @@ export interface SkillInfo {
 export interface SkillDetail {
   skill: SkillInfo;
   backups: Array<{ version: string; timestamp: string; dir: string }>;
+  skillMd: string;
 }
 
 export interface SearchResult {
@@ -70,6 +71,14 @@ export interface UpdateCheckResult {
   remoteVersion: string | null;
   hasUpdate: boolean;
   isLocal: boolean;
+}
+
+export interface ConflictInfo {
+  skillName: string;
+  agent: string;
+  destPath: string;
+  type: 'managed-mismatch' | 'unmanaged' | 'broken-symlink';
+  detail: string;
 }
 
 // ─── API 函数 ─────────────────────────────────────
@@ -130,4 +139,12 @@ export const api = {
       method: 'DELETE',
     });
   },
+
+  manageTag: (name: string, action: 'add' | 'remove', tag: string) =>
+    request<{ success: boolean; tags: string[] }>(`/skills/${encodeURIComponent(name)}/tags`, {
+      method: 'POST',
+      body: JSON.stringify({ action, tag }),
+    }),
+
+  getConflicts: () => request<{ conflicts: ConflictInfo[] }>('/conflicts'),
 };

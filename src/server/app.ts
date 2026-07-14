@@ -23,16 +23,17 @@ import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import fs from 'node:fs';
 import path from 'node:path';
+import os from 'node:os';
 import { createContext } from '../core/context.js';
 import { listSkills, getSkillDetail, deploySkill, undeploySkill, removeSkill, listBackups } from '../core/skill-manager.js';
 import { installGitHubSkill, installLocalSkill } from '../core/installer.js';
 import { checkAllUpdates, checkForUpdate } from '../core/version-manager.js';
 import { searchLocal, searchRemote, searchAll } from '../lib/search.js';
 import { getAgents, detectInstalledAgents } from '../lib/agents.js';
-import { listAllTags } from '../lib/tags.js';
+import { listAllTags, addTag, removeTag, getSkillTags } from '../lib/tags.js';
 import { readConfig } from '../config.js';
 import { readLock } from '../lib/lock.js';
-import { getHomeDir } from '../lib/paths.js';
+import { getHomeDir, skillMdPath } from '../lib/paths.js';
 
 const app = new Hono();
 
@@ -125,7 +126,18 @@ app.get('/api/skills/*', (c) => {
     // 附加备份信息
     const backups = listBackups(name);
 
-    return c.json({ skill: detail, backups });
+    // 读取 SKILL.md 内容
+    let skillMd = '';
+    try {
+      const mdPath = skillMdPath(detail.namespace, detail.skillName);
+      if (fs.existsSync(mdPath)) {
+        skillMd = fs.readFileSync(mdPath, 'utf-8');
+      }
+    } catch {
+      // SKILL.md 可能不存在
+    }
+
+    return c.json({ skill: detail, backups, skillMd });
   } catch (e) {
     return c.json({ error: (e as Error).message }, 500);
   }
@@ -297,6 +309,106 @@ app.post('/api/skills/*/undeploy', (c) => {
     }
 
     return c.json({ success: true });
+  } catch (e) {
+    return c.json({ error: (e as Error).message }, 500);
+  }
+});
+
+// ─── 标签管理 ─────────────────────────────────────
+app.post('/api/skills/*/tags', async (c) => {
+  try {
+    const name = c.req.path.replace('/api/skills/', '').replace('/tags', '');
+    const body = await c.req.json<{ action: 'add' | 'remove'; tag: string }>();
+
+    if (body.action === 'add') {
+      addTag(name, body.tag);
+    } else {
+      removeTag(name, body.tag);
+    }
+
+    const tags = getSkillTags(name);
+    return c.json({ success: true, tags });
+  } catch (e) {
+    return c.json({ error: (e as Error).message }, 500);
+  }
+});
+
+// ─── 冲突检测 ─────────────────────────────────────
+app.get('/api/conflicts', (c) => {
+  try {
+    const ctx = createContext();
+    const lock = readLock();
+    const allAgents = getAgents();
+    const installedAgents = detectInstalledAgents();
+    const conflicts: Array<{
+      skillName: string;
+      agent: string;
+      destPath: string;
+      type: 'managed-mismatch' | 'unmanaged' | 'broken-symlink';
+      detail: string;
+    }> = [];
+
+    for (const [fullName, entry] of Object.entries(lock.skills)) {
+      const [namespace, skillName] = fullName.split('/');
+      if (!namespace || !skillName) continue;
+
+      for (const agentName of installedAgents) {
+        const agentConfig = allAgents[agentName];
+        if (!agentConfig) continue;
+
+        const agentSkillDir = agentConfig.skillsDir;
+        const destPath = path.join(
+          agentSkillDir.startsWith('/') ? agentSkillDir : path.join(process.env.SKILL_SYNC_AGENTS_DIR ?? os.homedir(), agentSkillDir),
+          skillName
+        );
+
+        let lstat: fs.Stats | null = null;
+        try {
+          lstat = fs.lstatSync(destPath);
+        } catch {
+          // 目标不存在，无冲突
+          continue;
+        }
+
+        const isDeployed = agentName in entry.distribution;
+
+        if (lstat.isSymbolicLink()) {
+          // 检查 symlink 是否指向中央仓库
+          const target = fs.readlinkSync(destPath);
+          const expectedPath = path.join(getHomeDir(), 'skills', namespace, skillName);
+          if (path.resolve(target) !== path.resolve(expectedPath)) {
+            conflicts.push({
+              skillName: fullName,
+              agent: agentName,
+              destPath,
+              type: 'managed-mismatch',
+              detail: `symlink 指向 ${target}，预期指向 ${expectedPath}`,
+            });
+          }
+        } else if (lstat.isDirectory()) {
+          // 目录存在但非 symlink
+          if (isDeployed && entry.distribution[agentName].mode === 'symlink') {
+            conflicts.push({
+              skillName: fullName,
+              agent: agentName,
+              destPath,
+              type: 'managed-mismatch',
+              detail: '应为 symlink 但实际是目录（可能被手动覆盖）',
+            });
+          } else if (!isDeployed) {
+            conflicts.push({
+              skillName: fullName,
+              agent: agentName,
+              destPath,
+              type: 'unmanaged',
+              detail: 'Agent 目录中存在未管理的 skill 副本',
+            });
+          }
+        }
+      }
+    }
+
+    return c.json({ conflicts });
   } catch (e) {
     return c.json({ error: (e as Error).message }, 500);
   }

@@ -70,7 +70,7 @@
           class="skill-card"
           :bordered="true"
           hoverable
-          @click="showDetail(skill.name)"
+          @click="$emit('viewDetail', skill.name)"
         >
           <template #header>
             <div class="card-header">
@@ -104,62 +104,15 @@
         </n-card>
       </div>
     </n-spin>
-
-    <!-- 详情 Modal -->
-    <n-modal v-model:show="detailVisible" preset="card" style="width: 600px" :title="detailTitle">
-      <n-spin :show="detailLoading">
-        <div v-if="skillDetail" class="detail-content">
-          <n-descriptions :column="1" bordered size="small">
-            <n-descriptions-item label="名称">
-              {{ skillDetail.skill.name }}
-            </n-descriptions-item>
-            <n-descriptions-item label="版本">
-              v{{ skillDetail.skill.version }}
-            </n-descriptions-item>
-            <n-descriptions-item label="描述">
-              {{ skillDetail.skill.description || '无' }}
-            </n-descriptions-item>
-            <n-descriptions-item label="分发模式">
-              {{ skillDetail.skill.deployMode }}
-            </n-descriptions-item>
-            <n-descriptions-item label="标签">
-              <n-space size="small" v-if="skillDetail.skill.tags.length > 0">
-                <n-tag v-for="tag in skillDetail.skill.tags" :key="tag" size="small">
-                  {{ tag }}
-                </n-tag>
-              </n-space>
-              <span v-else>无</span>
-            </n-descriptions-item>
-            <n-descriptions-item label="分发 Agent">
-              <n-space size="small" v-if="skillDetail.skill.agents.length > 0">
-                <n-tag v-for="agent in skillDetail.skill.agents" :key="agent" size="small" type="info">
-                  {{ agent }}
-                </n-tag>
-              </n-space>
-              <span v-else>未分发</span>
-            </n-descriptions-item>
-          </n-descriptions>
-
-          <n-divider v-if="skillDetail.backups.length > 0" />
-          <div v-if="skillDetail.backups.length > 0">
-            <h4>备份历史</h4>
-            <n-space vertical>
-              <div v-for="b in skillDetail.backups" :key="b.dir" class="backup-item">
-                <n-tag size="small">v{{ b.version }}</n-tag>
-                <span class="backup-time">{{ b.timestamp }}</span>
-              </div>
-            </n-space>
-          </div>
-        </div>
-      </n-spin>
-    </n-modal>
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue';
 import { useMessage } from 'naive-ui';
-import { api, type SkillInfo, type StatusInfo, type SkillDetail } from '../api';
+import { api, type SkillInfo, type StatusInfo } from '../api';
+
+defineEmits<{ viewDetail: [name: string] }>();
 
 const message = useMessage();
 
@@ -171,11 +124,6 @@ const filterAgent = ref<string | null>(null);
 const filterTag = ref<string | null>(null);
 const agentOptions = ref<{ label: string; value: string }[]>([]);
 const tagOptions = ref<{ label: string; value: string }[]>([]);
-
-const detailVisible = ref(false);
-const detailLoading = ref(false);
-const detailTitle = ref('');
-const skillDetail = ref<SkillDetail | null>(null);
 
 const filteredSkills = computed(() => {
   let result = skills.value;
@@ -216,22 +164,6 @@ async function refresh() {
     message.error(`加载失败: ${(e as Error).message}`);
   } finally {
     loading.value = false;
-  }
-}
-
-async function showDetail(name: string) {
-  detailVisible.value = true;
-  detailLoading.value = true;
-  detailTitle.value = name;
-  skillDetail.value = null;
-
-  try {
-    skillDetail.value = await api.getSkillDetail(name);
-  } catch (e) {
-    message.error(`加载详情失败: ${(e as Error).message}`);
-    detailVisible.value = false;
-  } finally {
-    detailLoading.value = false;
   }
 }
 
@@ -306,20 +238,5 @@ onMounted(() => {
 
 .empty-state {
   padding: 60px 0;
-}
-
-.detail-content {
-  padding: 8px 0;
-}
-
-.backup-item {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 13px;
-}
-
-.backup-time {
-  color: var(--text-color-3, #999);
 }
 </style>
