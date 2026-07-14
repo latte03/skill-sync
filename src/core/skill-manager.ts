@@ -23,7 +23,7 @@ import { parseFrontmatter, extractVersion } from '../lib/frontmatter.js';
 import { sanitizeMetadata, sanitizeName } from '../lib/sanitize.js';
 import { getAgentSkillDir, getAgents } from '../lib/agents.js';
 import { skillRepoPath, skillMdPath, backupDirPath } from '../lib/paths.js';
-import { LOCKFILE_VERSION, CLI_VERSION } from '../lib/constants.js';
+import { LOCKFILE_VERSION, CLI_VERSION, BACKUP_DIR } from '../lib/constants.js';
 import type {
   SkillSyncContext,
 } from './context.js';
@@ -111,17 +111,20 @@ export function removeLink(dest: string): void {
 
 /**
  * 递归复制目录
+ *
+ * @param exclude 排除的目录/文件名列表
  */
-function copyDirRecursive(src: string, dest: string): void {
+function copyDirRecursive(src: string, dest: string, exclude: string[] = []): void {
   if (!fs.existsSync(dest)) {
     fs.mkdirSync(dest, { recursive: true });
   }
   const entries = fs.readdirSync(src, { withFileTypes: true });
   for (const entry of entries) {
+    if (exclude.includes(entry.name)) continue;
     const srcPath = path.join(src, entry.name);
     const destPath = path.join(dest, entry.name);
     if (entry.isDirectory()) {
-      copyDirRecursive(srcPath, destPath);
+      copyDirRecursive(srcPath, destPath, exclude);
     } else {
       fs.copyFileSync(srcPath, destPath);
     }
@@ -488,8 +491,8 @@ export function removeSkill(
     return;
   }
 
-  if (scope === 'central' || scope === 'all') {
-    // 取消所有分发
+  if (scope === 'all') {
+    // 删除中央仓库 + 所有 Agent 分发
     for (const agent of Object.keys(entry.distribution)) {
       try {
         undeploySkill(ctx, name, agent);
@@ -498,17 +501,24 @@ export function removeSkill(
       }
     }
 
-    if (scope === 'all') {
-      // 删除 manifest
-      // 删除 skill 目录
-      const repoPath = skillRepoPath(namespace, skillName);
-      if (fs.existsSync(repoPath)) {
-        fs.rmSync(repoPath, { recursive: true, force: true });
-      }
-
-      // 从 lock 移除
-      removeLockEntry(name);
+    // 删除 manifest + skill 目录
+    const repoPath = skillRepoPath(namespace, skillName);
+    if (fs.existsSync(repoPath)) {
+      fs.rmSync(repoPath, { recursive: true, force: true });
     }
+
+    // 从 lock 移除
+    removeLockEntry(name);
+  } else if (scope === 'central') {
+    // 仅删除中央仓库（Agent 下的分发变为孤儿副本，不再管理）
+    // 不调用 undeploySkill — Agent 目录下的文件保留为孤儿副本
+    const repoPath = skillRepoPath(namespace, skillName);
+    if (fs.existsSync(repoPath)) {
+      fs.rmSync(repoPath, { recursive: true, force: true });
+    }
+
+    // 从 lock 移除（Agent 分发信息随之丢失，变为不可管理的孤儿）
+    removeLockEntry(name);
   }
 }
 
@@ -536,7 +546,7 @@ export function createBackup(
 
   const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
   const backupPath = path.join(backupDir, `${entry.version}_${timestamp}`);
-  copyDirRecursive(repoPath, backupPath);
+  copyDirRecursive(repoPath, backupPath, [BACKUP_DIR]);
 
   // 更新 manifest
   const manifest = readManifest(namespace, skillName);

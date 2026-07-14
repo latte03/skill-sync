@@ -12,6 +12,20 @@ import { CLI_VERSION } from '../lib/constants.js';
 import { initCommand } from '../commands/init.js';
 import { listCommand } from '../commands/list.js';
 import { statusCommand } from '../commands/status.js';
+import { installCommand } from '../commands/install.js';
+import { removeCommand } from '../commands/remove.js';
+import { deployCommand, undeployCommand } from '../commands/deploy.js';
+import { importCommand } from '../commands/import.js';
+import { updateCommand, switchCommand } from '../commands/update.js';
+import { searchCommand } from '../commands/search.js';
+import { checkCommand } from '../commands/check.js';
+import { infoCommand } from '../commands/info.js';
+import { tagCommand } from '../commands/tag.js';
+import { configCommand } from '../commands/config.js';
+import { cleanCommand } from '../commands/clean.js';
+import { doctorCommand } from '../commands/doctor.js';
+import { syncCommand } from '../commands/sync.js';
+import { uiCommand } from '../commands/ui.js';
 
 const program = new Command();
 
@@ -71,129 +85,337 @@ program
     }
   });
 
-// ─── TODO: add ───────────────────────────────────
+// ─── install ─────────────────────────────────────
 program
-  .command('add <source>')
-  .description('从 GitHub 仓库添加 skill')
-  .option('-s, --skill <name>', '指定 skill 名称')
-  .option('-a, --agents <agents>', '目标 Agent（逗号分隔）')
+  .command('install <source>')
+  .description('安装 skill（GitHub / 本地路径）')
+  .option('-s, --skill <name>', '指定安装哪个 skill（多 skill 仓库时必填）')
   .option('--ref <ref>', 'Git 引用（branch/tag/commit）')
+  .option('-a, --agents <agents>', '安装后分发到指定 Agent（逗号分隔）')
   .option('--copy', '使用复制模式（默认 symlink）')
-  .option('--no-deploy', '仅添加到中央仓库，不分发')
+  .option('--no-deploy', '只安装到中央仓库，不自动分发')
   .option('--ignore-deps', '跳过依赖检查')
-  .option('-y, --yes', '跳过交互提示')
-  .action((_source: string, _opts: unknown) => {
-    console.log(chalk.yellow('⚠ add 命令尚未实现，将在后续阶段开发'));
+  .option('-y, --yes', '跳过确认提示')
+  .action(async (source: string, opts: {
+    skill?: string;
+    ref?: string;
+    agents?: string;
+    copy?: boolean;
+    deploy?: boolean;
+    ignoreDeps?: boolean;
+    yes?: boolean;
+  }) => {
+    try {
+      await installCommand(source, {
+        skill: opts.skill,
+        ref: opts.ref,
+        agents: opts.agents ? opts.agents.split(',').map(s => s.trim()).filter(Boolean) : undefined,
+        deployType: opts.copy ? 'copy' : 'symlink',
+        noDeploy: opts.deploy === false,
+        ignoreDeps: opts.ignoreDeps,
+        yes: opts.yes,
+      });
+    } catch (e) {
+      console.error(chalk.red(`\n✗ ${(e as Error).message}`));
+      process.exit(1);
+    }
   });
 
-// ─── TODO: install ───────────────────────────────
-program
-  .command('install <query>')
-  .description('从 skills.sh 搜索并安装 skill')
-  .option('-a, --agents <agents>', '目标 Agent（逗号分隔）')
-  .option('--copy', '使用复制模式')
-  .option('-y, --yes', '跳过交互提示')
-  .action((_query: string, _opts: unknown) => {
-    console.log(chalk.yellow('⚠ install 命令尚未实现，将在后续阶段开发'));
-  });
-
-// ─── TODO: update ────────────────────────────────
-program
-  .command('update [name]')
-  .description('更新 skill')
-  .option('--all', '更新所有 skill')
-  .option('--version <ver>', '指定版本')
-  .option('--no-backup', '跳过备份')
-  .option('--dry-run', '预览更新')
-  .action((_name: string | undefined, _opts: unknown) => {
-    console.log(chalk.yellow('⚠ update 命令尚未实现，将在后续阶段开发'));
-  });
-
-// ─── TODO: remove ────────────────────────────────
+// ─── remove ──────────────────────────────────────
 program
   .command('remove <name>')
   .alias('rm')
   .description('删除 skill')
-  .option('--central', '仅从中央仓库删除')
+  .option('--all', '删除中央仓库 + 所有 Agent 下的分发')
+  .option('--central', '仅删除中央仓库')
   .option('--agent <name>', '仅从指定 Agent 删除')
-  .option('-y, --yes', '跳过交互提示')
-  .action((_name: string, _opts: unknown) => {
-    console.log(chalk.yellow('⚠ remove 命令尚未实现，将在后续阶段开发'));
+  .option('-f, --force', '跳过确认')
+  .action((name: string, opts: {
+    all?: boolean;
+    central?: boolean;
+    agent?: string;
+    force?: boolean;
+  }) => {
+    try {
+      removeCommand(name, opts);
+    } catch (e) {
+      console.error(chalk.red(`\n✗ ${(e as Error).message}`));
+      process.exit(1);
+    }
   });
 
-// ─── TODO: deploy ────────────────────────────────
+// ─── deploy ──────────────────────────────────────
 program
-  .command('deploy <name>')
+  .command('deploy [name]')
   .description('分发 skill 到 Agent')
-  .option('-a, --agents <agents>', '目标 Agent（逗号分隔）')
-  .option('--copy', '使用复制模式')
-  .option('--force', '强制覆盖')
-  .option('--dry-run', '预览')
-  .action((_name: string, _opts: unknown) => {
-    console.log(chalk.yellow('⚠ deploy 命令尚未实现，将在后续阶段开发'));
+  .option('--to <agent>', '目标 Agent（逗号分隔）')
+  .option('--all', '分发所有 skill')
+  .option('-m, --mode <mode>', '分发模式: symlink | copy')
+  .option('-f, --force', '强制覆盖已存在的分发')
+  .option('--dry-run', '预览分发操作')
+  .action((name: string | undefined, opts: {
+    to?: string;
+    all?: boolean;
+    mode?: 'symlink' | 'copy';
+    force?: boolean;
+    dryRun?: boolean;
+  }) => {
+    try {
+      deployCommand(name, opts);
+    } catch (e) {
+      console.error(chalk.red(`\n✗ ${(e as Error).message}`));
+      process.exit(1);
+    }
   });
 
-// ─── TODO: undeploy ──────────────────────────────
+// ─── undeploy ────────────────────────────────────
 program
   .command('undeploy <name>')
   .description('取消 skill 分发')
-  .option('-a, --agents <agents>', '目标 Agent（逗号分隔）')
-  .option('--all', '取消所有分发')
-  .action((_name: string, _opts: unknown) => {
-    console.log(chalk.yellow('⚠ undeploy 命令尚未实现，将在后续阶段开发'));
+  .option('--agent <name>', '指定 Agent（逗号分隔）')
+  .option('--all', '从所有 Agent 撤销分发')
+  .option('-f, --force', '跳过确认')
+  .action((name: string, opts: {
+    agent?: string;
+    all?: boolean;
+    force?: boolean;
+  }) => {
+    try {
+      undeployCommand(name, opts);
+    } catch (e) {
+      console.error(chalk.red(`\n✗ ${(e as Error).message}`));
+      process.exit(1);
+    }
   });
 
-// ─── TODO: search ────────────────────────────────
-program
-  .command('search <query>')
-  .description('搜索 skill')
-  .option('--local', '仅搜索本地')
-  .option('--remote', '仅搜索远程')
-  .action((_query: string, _opts: unknown) => {
-    console.log(chalk.yellow('⚠ search 命令尚未实现，将在后续阶段开发'));
-  });
-
-// ─── TODO: sync ──────────────────────────────────
-program
-  .command('sync')
-  .description('同步中央仓库到远程 Git')
-  .option('--push', '推送到远程')
-  .option('--pull', '拉取远程')
-  .option('-m, --message <msg>', '提交信息')
-  .option('--strategy <strategy>', '冲突策略')
-  .option('--dry-run', '预览')
-  .action((_opts: unknown) => {
-    console.log(chalk.yellow('⚠ sync 命令尚未实现，将在后续阶段开发'));
-  });
-
-// ─── TODO: import ────────────────────────────────
+// ─── import ──────────────────────────────────────
 program
   .command('import [path]')
-  .description('导入散落 skill')
-  .option('--namespace <name>', '命名空间', 'local')
-  .option('--link', '替换原位置为 symlink')
-  .option('-y, --yes', '跳过交互提示')
-  .action((_path: string | undefined, _opts: unknown) => {
-    console.log(chalk.yellow('⚠ import 命令尚未实现，将在后续阶段开发'));
+  .description('导入散落 skill 到中央仓库')
+  .option('-n, --namespace <name>', '命名空间', 'local')
+  .option('-a, --agents <agents>', '导入后分发到指定 Agent（逗号分隔）')
+  .option('--copy', '使用复制模式（默认 symlink）')
+  .option('--no-deploy', '只导入到中央仓库，不自动分发')
+  .option('-y, --yes', '跳过确认提示')
+  .action((inputPath: string | undefined, opts: {
+    namespace?: string;
+    agents?: string;
+    copy?: boolean;
+    deploy?: boolean;
+    yes?: boolean;
+  }) => {
+    try {
+      importCommand(inputPath, {
+        namespace: opts.namespace,
+        agents: opts.agents,
+        deploy: opts.copy ? 'copy' : 'symlink',
+        noDeploy: opts.deploy === false,
+        yes: opts.yes,
+      });
+    } catch (e) {
+      console.error(chalk.red(`\n✗ ${(e as Error).message}`));
+      process.exit(1);
+    }
   });
 
-// ─── TODO: clean ─────────────────────────────────
+// ─── update ─────────────────────────────────────
+program
+  .command('update [name]')
+  .description('更新 skill（自动备份当前版本）')
+  .option('--all', '更新所有有更新的 skill')
+  .option('--version <ver>', '指定升级到某个版本')
+  .option('--no-backup', '不保留备份')
+  .option('--dry-run', '预览将要发生的变化')
+  .option('-f, --force', '跳过确认')
+  .action(async (name: string | undefined, opts: {
+    all?: boolean;
+    version?: string;
+    backup?: boolean;
+    dryRun?: boolean;
+    force?: boolean;
+  }) => {
+    try {
+      await updateCommand(name, opts);
+    } catch (e) {
+      console.error(chalk.red(`\n✗ ${(e as Error).message}`));
+      process.exit(1);
+    }
+  });
+
+// ─── switch ──────────────────────────────────────
+program
+  .command('switch <name>')
+  .description('从备份恢复 skill 版本')
+  .option('--list', '列出可用备份')
+  .option('--backup <id>', '指定恢复的备份 ID')
+  .option('-f, --force', '跳过确认')
+  .action((name: string, opts: {
+    list?: boolean;
+    backup?: string;
+    force?: boolean;
+  }) => {
+    try {
+      switchCommand(name, opts);
+    } catch (e) {
+      console.error(chalk.red(`\n✗ ${(e as Error).message}`));
+      process.exit(1);
+    }
+  });
+
+// ─── search ─────────────────────────────────────
+program
+  .command('search <query>')
+  .alias('find')
+  .description('搜索 skill（本地模糊 + skills.sh）')
+  .option('--local', '仅搜索本地')
+  .option('--remote', '仅搜索 skills.sh')
+  .option('--limit <n>', '返回结果数量限制', '20')
+  .action(async (query: string, opts: {
+    local?: boolean;
+    remote?: boolean;
+    limit?: string;
+  }) => {
+    try {
+      await searchCommand(query, opts);
+    } catch (e) {
+      console.error(chalk.red(`\n✗ ${(e as Error).message}`));
+      process.exit(1);
+    }
+  });
+
+// ─── check ──────────────────────────────────────
+program
+  .command('check [name]')
+  .description('检查 skill 更新')
+  .action(async (name: string | undefined) => {
+    try {
+      await checkCommand(name);
+    } catch (e) {
+      console.error(chalk.red(`\n✗ ${(e as Error).message}`));
+      process.exit(1);
+    }
+  });
+
+// ─── info ───────────────────────────────────────
+program
+  .command('info <name>')
+  .description('查看 skill 详情')
+  .action((name: string) => {
+    try {
+      infoCommand(name);
+    } catch (e) {
+      console.error(chalk.red(`\n✗ ${(e as Error).message}`));
+      process.exit(1);
+    }
+  });
+
+// ─── sync ───────────────────────────────────────
+program
+  .command('sync <action>')
+  .description('同步中央仓库到远程 Git')
+  .option('-m, --message <msg>', '提交信息（push）')
+  .option('--strategy <strategy>', '冲突策略: ours | theirs | manual | newer | skip')
+  .option('--dry-run', '预览操作')
+  .action(async (action: string, opts: {
+    message?: string;
+    strategy?: string;
+    dryRun?: boolean;
+  }) => {
+    try {
+      await syncCommand(action, opts);
+    } catch (e) {
+      console.error(chalk.red(`\n✗ ${(e as Error).message}`));
+      process.exit(1);
+    }
+  });
+
+// ─── clean ──────────────────────────────────────
 program
   .command('clean')
-  .description('清理缓存和临时文件')
-  .option('--cache', '清理缓存')
-  .option('--backups', '清理旧备份')
+  .description('清理缓存/备份/孤儿文件')
+  .option('--cache', '清理缓存目录')
+  .option('--backups [name]', '清理指定 skill 的备份')
+  .option('--orphans', '清理孤儿文件（仅删 symlink）')
   .option('--all', '清理所有')
-  .action((_opts: unknown) => {
-    console.log(chalk.yellow('⚠ clean 命令尚未实现，将在后续阶段开发'));
+  .option('-f, --force', '允许删除真实目录')
+  .action((opts: {
+    cache?: boolean;
+    backups?: string | boolean;
+    orphans?: boolean;
+    all?: boolean;
+    force?: boolean;
+  }) => {
+    try {
+      cleanCommand({
+        cache: opts.cache,
+        backups: typeof opts.backups === 'string' ? opts.backups : (opts.backups ? '' : undefined),
+        orphans: opts.orphans,
+        all: opts.all,
+        force: opts.force,
+      });
+    } catch (e) {
+      console.error(chalk.red(`\n✗ ${(e as Error).message}`));
+      process.exit(1);
+    }
   });
 
-// ─── TODO: tag ───────────────────────────────────
+// ─── tag ────────────────────────────────────────
 program
   .command('tag <action> [name] [tag]')
   .description('管理 skill 标签')
-  .action((_action: string, _name: string | undefined, _tag: string | undefined) => {
-    console.log(chalk.yellow('⚠ tag 命令尚未实现，将在后续阶段开发'));
+  .action((action: string, name: string | undefined, tag: string | undefined) => {
+    try {
+      tagCommand(action, name, tag);
+    } catch (e) {
+      console.error(chalk.red(`\n✗ ${(e as Error).message}`));
+      process.exit(1);
+    }
+  });
+
+// ─── config ─────────────────────────────────────
+program
+  .command('config <action> [key] [value]')
+  .description('配置管理')
+  .action((action: string, key: string | undefined, value: string | undefined) => {
+    try {
+      configCommand(action, key, value);
+    } catch (e) {
+      console.error(chalk.red(`\n✗ ${(e as Error).message}`));
+      process.exit(1);
+    }
+  });
+
+// ─── doctor ─────────────────────────────────────
+program
+  .command('doctor')
+  .description('环境健康检查')
+  .action(() => {
+    try {
+      doctorCommand();
+    } catch (e) {
+      console.error(chalk.red(`\n✗ ${(e as Error).message}`));
+      process.exit(1);
+    }
+  });
+
+// ─── ui ──────────────────────────────────────────
+program
+  .command('ui')
+  .description('启动 Web Dashboard')
+  .option('--port <port>', '指定端口（默认: 从 17170 自动选择）')
+  .option('--no-open', '不自动打开浏览器')
+  .option('--host <host>', '监听地址', 'localhost')
+  .action(async (opts: {
+    port?: string;
+    open?: boolean;
+    host?: string;
+  }) => {
+    try {
+      await uiCommand(opts);
+    } catch (e) {
+      console.error(chalk.red(`\n✗ ${(e as Error).message}`));
+      process.exit(1);
+    }
   });
 
 program.parse();

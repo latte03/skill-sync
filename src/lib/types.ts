@@ -351,3 +351,57 @@ export interface ImportResult {
   version: string;
   deployed: string[];
 }
+
+// ==================== Source 解析 ====================
+
+export interface ParsedSource {
+  type: 'github' | 'git' | 'local';
+  url: string | null;
+  owner: string | null;
+  repo: string | null;
+  /** skill 在仓库中的路径（GitHub Trees API 用） */
+  skillPath: string | null;
+  /** Git 引用（branch/tag/commit） */
+  ref: string | null;
+  /** skill 名称过滤器（多 skill 仓库中指定安装哪个） */
+  skillFilter: string | null;
+}
+
+// ==================== Skill 发现 ====================
+
+export interface DiscoveredSkill {
+  /** skill 名称（来自 frontmatter 或目录名） */
+  name: string;
+  /** skill 目录绝对路径 */
+  dir: string;
+  /** SKILL.md 文件绝对路径 */
+  skillMdPath: string;
+  /** frontmatter 中的 description */
+  description?: string;
+  /** frontmatter 原始数据 */
+  metadata?: Record<string, unknown>;
+  /** SKILL.md 正文内容 */
+  rawContent?: string;
+}
+
+// ==================== 依赖声明 ====================
+
+export type PackageManager = 'npm' | 'pip';
+
+export type SkillDependencies = Partial<Record<PackageManager, string[]>>;
+
+// ==================== GitHub API ====================
+
+export interface TreeNode {
+  path: string;
+  mode: string;
+  type: 'blob' | 'tree' | 'commit';
+  sha: string;
+  size?: number;
+}
+
+export interface TreeResponse {
+  sha: string;
+  tree: TreeNode[];
+  truncated: boolean;
+}

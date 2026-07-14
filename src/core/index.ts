@@ -28,3 +28,28 @@ export {
   createBackup,
   listBackups,
 } from './skill-manager.js';
+
+export {
+  discoverLocalSkills,
+  discoverGitHubSkills,
+  downloadGitHubSkill,
+  installLocalSkill,
+  installGitHubSkill,
+} from './installer.js';
+
+export {
+  checkForUpdate,
+  checkAllUpdates,
+  updateSkill,
+  updateAllSkills,
+  listSkillBackups,
+  restoreFromBackup,
+} from './version-manager.js';
+
+export {
+  isGitInitialized,
+  initGit,
+  getSyncStatus,
+  pushSync,
+  pullSync,
+} from './sync-manager.js';

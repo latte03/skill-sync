@@ -10,7 +10,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import { afterEach, beforeEach } from 'vitest';
 
 /**
  * 创建临时测试环境
@@ -115,22 +114,31 @@ export function createMockSkillDir(
 }
 
 /**
- * 自动 setup/teardown 测试环境
+ * 手动 setup/teardown 测试环境（适用于 beforeEach/afterEach 场景）
  *
- * 用法：
- * ```ts
- * let env: TestEnv;
- * beforeEach(() => { env = autoSetup(); });
- * afterEach(() => { env.cleanup(); });
- * ```
+ * 返回临时目录路径，在 afterEach 中调用 cleanupTestEnv 清理
  */
-export function autoSetup(): ReturnType<typeof createTestEnv> {
-  let env: ReturnType<typeof createTestEnv>;
-  beforeEach(() => { env = createTestEnv(); });
-  afterEach(() => { env.cleanup(); });
-  return {
-    get homeDir() { return env.homeDir; },
-    get agentsDir() { return env.agentsDir; },
-    cleanup: () => {},
-  } as ReturnType<typeof createTestEnv>;
+export function setupTestEnv(): { tempDir: string; homeDir: string; agentsDir: string } {
+  const env = createTestEnv();
+  // 额外创建一个 tempDir 用于存放测试用的 skill 源文件
+  const tempDir = path.join(path.dirname(env.homeDir), 'source');
+  fs.mkdirSync(tempDir, { recursive: true });
+
+  // 将 env 存储在全局变量中供 cleanupTestEnv 使用
+  (globalThis as Record<string, unknown>).__testEnv = env;
+  (globalThis as Record<string, unknown>).__testTempDir = tempDir;
+
+  return { tempDir, homeDir: env.homeDir, agentsDir: env.agentsDir };
+}
+
+/**
+ * 清理测试环境
+ */
+export function cleanupTestEnv(): void {
+  const env = (globalThis as Record<string, unknown>).__testEnv as ReturnType<typeof createTestEnv> | undefined;
+  if (env) {
+    env.cleanup();
+    delete (globalThis as Record<string, unknown>).__testEnv;
+    delete (globalThis as Record<string, unknown>).__testTempDir;
+  }
 }

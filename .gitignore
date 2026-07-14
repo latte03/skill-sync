@@ -3,6 +3,10 @@ node_modules/
 
 # Build output
 dist/
+dist/web/
+
+# Web dev
+web/node_modules/
 
 # Test sandbox
 test-env/
