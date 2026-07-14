@@ -217,6 +217,11 @@ const skillOptions = computed(() =>
   skills.value.map(s => ({ label: s.name, value: s.name }))
 );
 
+const tagOptions = computed(() => {
+  const tags = Object.keys(allTags.value);
+  return tags.map(tag => ({ label: tag, value: tag }));
+});
+
 const undeployAgentOptions = computed(() => {
   const skill = skills.value.find(s => s.name === undeployTargetSkill.value);
   if (!skill) return [];
@@ -302,6 +307,23 @@ async function addTagToSkill() {
     await refresh();
   } catch (e) {
     message.error(`添加标签失败: ${(e as Error).message}`);
+  }
+}
+
+function createTagForSelected() {
+  const tag = newTagName.value.trim();
+  if (!tag) return;
+  
+  // 如果没有选择 skill，尝试选择第一个可用的 skill
+  if (!tagTargetSkill.value && skillOptions.value.length > 0) {
+    tagTargetSkill.value = skillOptions.value[0].value;
+  }
+  
+  // 如果有选择的 skill，直接添加标签
+  if (tagTargetSkill.value) {
+    addTagToSkill();
+  } else {
+    message.warning('请先选择一个 skill');
   }
 }
 
