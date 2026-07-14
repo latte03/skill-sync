@@ -1,6 +1,6 @@
 {
   "name": "skill-sync",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "跨端跨 Agent 的 AI Skill 统一管理工具",
   "type": "module",
   "bin": {
