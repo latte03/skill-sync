@@ -3,6 +3,13 @@
 所有显著变更均记录在此文件中。
 格式基于 [Conventional Commits](https://www.conventionalcommits.org/)。
 
+### [0.1.2](https://github.com/latte03/skill-sync/compare/v0.1.1...v0.1.2) (2026-07-14)
+
+
+### ✨ 新功能
+
+* **push-sync:** 支持无 upstream tracking 时检测未推送的 commits ([8677278](https://github.com/latte03/skill-sync/commit/86772781f0ec5f2ae0230956636cd85221b3a9e5))
+
 ### 0.1.1 (2026-07-14)
 
 
