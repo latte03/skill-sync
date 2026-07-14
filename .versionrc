@@ -1,0 +1,22 @@
+{
+  "header": "# Changelog\n\n所有显著变更均记录在此文件中。\n格式基于 [Conventional Commits](https://www.conventionalcommits.org/)。\n",
+  "types": [
+    { "type": "feat", "section": "✨ 新功能" },
+    { "type": "fix", "section": "🐛 Bug 修复" },
+    { "type": "perf", "section": "⚡ 性能优化" },
+    { "type": "refactor", "section": "♻️ 重构" },
+    { "type": "docs", "section": "📝 文档" },
+    { "type": "test", "section": "✅ 测试" },
+    { "type": "chore", "section": "🔧 杂项", "hidden": false },
+    { "type": "style", "section": "💄 样式", "hidden": true },
+    { "type": "ci", "section": "👷 CI", "hidden": true }
+  ],
+  "commitUrlFormat": "{{host}}/{{owner}}/{{repository}}/commit/{{hash}}",
+  "compareUrlFormat": "{{host}}/{{owner}}/{{repository}}/compare/{{previousTag}}...{{currentTag}}",
+  "skip": {
+    "bump": false,
+    "changelog": false,
+    "commit": false,
+    "tag": false
+  }
+}

@@ -22,7 +22,13 @@
     "start": "node dist/bin/skill-sync.js",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:coverage": "vitest run --coverage"
+    "test:coverage": "vitest run --coverage",
+    "pack:test": "pnpm pack && pnpm install -g ./skill-sync-*.tgz",
+    "release": "standard-version",
+    "release:dry": "standard-version --dry-run",
+    "release:major": "standard-version --release-as major",
+    "release:minor": "standard-version --release-as minor",
+    "release:patch": "standard-version --release-as patch"
   },
   "keywords": [
     "skill",
@@ -62,6 +68,7 @@
     "md-editor-v3": "^6.5.3",
     "msw": "^2.6.8",
     "naive-ui": "^2.44.1",
+    "standard-version": "^9.5.0",
     "typescript": "^5.7.2",
     "unocss": "^66.7.5",
     "vite": "^8.1.4",

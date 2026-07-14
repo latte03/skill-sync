@@ -24,3 +24,7 @@ Thumbs.db
 # Cache
 cache/
 Skiller-main/
+
+
+# Pack
+skill-sync*.tgz
