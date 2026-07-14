@@ -90,6 +90,38 @@ describe('sync-manager', () => {
     expect(result.success).toBe(true);
   });
 
+  it('pushSync 工作区干净但有未推送 commit（无 upstream tracking）', async () => {
+    const ctx = createTestContext();
+    await initGit(ctx);
+
+    // 创建一个 bare remote 仓库
+    const remoteDir = path.join(path.dirname(getHomeDir()), 'remote.git');
+    fs.mkdirSync(remoteDir, { recursive: true });
+    const { simpleGit } = await import('simple-git');
+    const remoteGit = simpleGit(remoteDir);
+    await remoteGit.init(true, ['--bare']);
+
+    // 添加 remote
+    const git = simpleGit(getHomeDir());
+    await git.addRemote('origin', remoteDir);
+
+    // 提交一个文件（通过 pushSync 完成 commit）
+    fs.writeFileSync(path.join(getHomeDir(), 'skills-lock.json'), '{}');
+    await git.add('-A');
+    await git.commit('initial commit');
+
+    // 工作区干净，有 commit 但无 upstream tracking
+    const status = await git.status();
+    expect(status.isClean()).toBe(true);
+    expect(status.tracking).toBeNull();
+    expect(status.ahead).toBe(0); // 无 tracking 时 ahead 为 0
+
+    // pushSync 应该能检测到未推送的 commit 并执行推送
+    const result = await pushSync(ctx);
+    expect(result.success).toBe(true);
+    expect(result.pushed).toBeGreaterThan(0);
+  });
+
   it('getSyncStatus 检测未提交变更', async () => {
     const ctx = createTestContext();
     await initGit(ctx);

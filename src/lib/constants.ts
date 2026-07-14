@@ -2,6 +2,10 @@
  * 全局常量定义
  */
 
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
 // 文件名常量
 export const CONFIG_FILE = 'config.yaml';
 export const SECRETS_FILE = 'secrets.yaml';
@@ -28,5 +32,8 @@ export const GITHUB_API_BASE = 'https://api.github.com';
 export const GITHUB_RAW_BASE = 'https://raw.githubusercontent.com';
 export const SKILLS_SH_API_BASE = 'https://skills.sh/api';
 
-// CLI 版本
-export const CLI_VERSION = '0.1.0';
+// CLI 版本（从 package.json 动态读取，避免手动维护）
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const pkgPath = path.join(__dirname, '..', '..', 'package.json');
+const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf-8'));
+export const CLI_VERSION = pkg.version as string;

@@ -157,13 +157,19 @@ export async function pushSync(
 
     if (status.isClean()) {
       // 工作区干净 — 检查是否有未推送的 commits
-      if (status.ahead > 0 && hasRemote) {
+      // 注意：status.ahead 依赖 upstream tracking branch。
+      // 如果分支没有设置 upstream（首次推送场景），ahead 会返回 0，
+      // 但实际上所有 commit 都是未推送的，需要通过 !status.tracking 判断。
+      const hasUnpushedCommits = status.ahead > 0 || (!status.tracking && hasRemote);
+
+      if (hasUnpushedCommits) {
+        const unpushedCount = status.ahead > 0 ? status.ahead : 1;
         if (opts?.dryRun) {
-          ctx.logger.info(`[dry-run] 将推送 ${status.ahead} 个未推送的 commit`);
-          return { success: true, pushed: status.ahead, pulled: 0, conflicts: [] };
+          ctx.logger.info(`[dry-run] 将推送 ${unpushedCount} 个未推送的 commit`);
+          return { success: true, pushed: unpushedCount, pulled: 0, conflicts: [] };
         }
         await gitPushWithUpstream(git, ctx);
-        return { success: true, pushed: status.ahead, pulled: 0, conflicts: [] };
+        return { success: true, pushed: unpushedCount, pulled: 0, conflicts: [] };
       }
       // 无变更可提交，也无未推送 commits
       return { success: true, pushed: 0, pulled: 0, conflicts: [] };
