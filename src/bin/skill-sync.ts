@@ -26,6 +26,7 @@ import { cleanCommand } from '../commands/clean.js';
 import { doctorCommand } from '../commands/doctor.js';
 import { syncCommand } from '../commands/sync.js';
 import { uiCommand } from '../commands/ui.js';
+import { checkGitignoreCommand } from '../commands/check-gitignore.js';
 
 const program = new Command();
 
@@ -392,6 +393,20 @@ program
   .action(() => {
     try {
       doctorCommand();
+    } catch (e) {
+      console.error(chalk.red(`\n✗ ${(e as Error).message}`));
+      process.exit(1);
+    }
+  });
+
+// ─── check-gitignore ─────────────────────────────
+program
+  .command('check-gitignore')
+  .description('检测中央仓库 .gitignore 配置是否正确')
+  .option('--fix', '自动修复 .gitignore 配置')
+  .action((opts: { fix?: boolean }) => {
+    try {
+      checkGitignoreCommand(opts);
     } catch (e) {
       console.error(chalk.red(`\n✗ ${(e as Error).message}`));
       process.exit(1);

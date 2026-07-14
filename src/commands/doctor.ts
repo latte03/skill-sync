@@ -12,6 +12,7 @@
  * - 软链接是否完好
  * - skills-lock.json 是否与文件系统一致
  * - 磁盘空间是否充足
+ * - .gitignore 白名单模式配置是否正确
  */
 
 import fs from 'node:fs';
@@ -23,6 +24,7 @@ import { readConfig } from '../config.js';
 import { readLock } from '../lib/lock.js';
 import { getAgents } from '../lib/agents.js';
 import { formatError } from '../lib/errors.js';
+import { checkGitignoreRules } from './check-gitignore.js';
 
 interface CheckResult {
   name: string;
@@ -180,6 +182,18 @@ export function doctorCommand(): void {
     }
   } catch {
     results.push({ name: 'lock 一致性', status: 'warn', message: '无法检查' });
+  }
+
+  // 12. .gitignore 白名单模式配置
+  try {
+    const gitignoreCheck = checkGitignoreRules();
+    results.push({
+      name: '.gitignore 配置',
+      status: gitignoreCheck.status,
+      message: gitignoreCheck.message,
+    });
+  } catch {
+    results.push({ name: '.gitignore 配置', status: 'warn', message: '无法检查' });
   }
 
   // 输出结果
