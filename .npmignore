@@ -1,0 +1,37 @@
+# Source files
+src/
+web/src/
+
+# Test files
+test/
+test-env/
+**/*.test.ts
+**/*.spec.ts
+
+# Dev config
+web/vite.config.ts
+web/uno.config.ts
+tsconfig.json
+vitest.config.ts
+*.config.ts
+
+# Build tools & misc
+.codefree/
+explame/
+docs/
+.coder/
+.claude/
+.codex/
+.catpaw/
+.mcp/
+.cursor/
+.github/
+.vscode/
+.idea/
+
+# Misc
+*.log
+*.mdc
+.DS_Store
+.gitignore
+.gitattributes

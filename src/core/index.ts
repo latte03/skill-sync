@@ -52,4 +52,11 @@ export {
   getSyncStatus,
   pushSync,
   pullSync,
+  getRemotes,
+  setRemoteUrl,
+  getCommitLog,
+  getBranchInfo,
+  getChangedFiles,
+  getGitDiff,
 } from './sync-manager.js';
+export type { GitCommitInfo, GitRemoteInfo, GitBranchInfo } from './sync-manager.js';

@@ -127,14 +127,14 @@ onMounted(() => {
 
 <style scoped>
 .status-page {
-  max-width: 800px;
+  max-width: 860px;
   margin: 0 auto;
 }
 
 .path-text {
   font-family: 'SF Mono', Monaco, monospace;
   font-size: 13px;
-  color: var(--primary-color, #63e2b7);
+  color: #007aff;
 }
 
 .update-list {
@@ -153,5 +153,7 @@ onMounted(() => {
 
 .update-name {
   min-width: 200px;
+  font-weight: 500;
+  color: #1d1d1f;
 }
 </style>

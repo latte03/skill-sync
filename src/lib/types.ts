@@ -203,6 +203,24 @@ export interface Dependency {
   version: string;
 }
 
+// ==================== AI 提供商 ====================
+
+export interface AIProviderConfig {
+  id: string;
+  name: string;
+  baseUrl: string;
+  models: string[];
+  defaultModel: string;
+  iconColor?: string;
+  custom?: boolean;
+}
+
+export interface AIConfig {
+  activeProvider?: string;
+  activeModel?: string;
+  customProviders?: AIProviderConfig[];
+}
+
 // ==================== 配置 ====================
 
 export interface Config {
@@ -238,6 +256,7 @@ export interface Config {
     retryCount?: number;
   };
   scanPaths?: string[];
+  ai?: AIConfig;
 }
 
 // ==================== manifest.yaml ====================

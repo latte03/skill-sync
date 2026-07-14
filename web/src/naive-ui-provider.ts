@@ -13,6 +13,7 @@ import {
   NCard,
   NButton,
   NInput,
+  NInputGroup,
   NSpace,
   NTag,
   NTable,
@@ -33,6 +34,9 @@ import {
   NCode,
   NDescriptions,
   NDescriptionsItem,
+  NGlobalStyle,
+  NTransfer,
+  NDynamicInput,
 } from 'naive-ui';
 
 export const naive = create({
@@ -47,6 +51,7 @@ export const naive = create({
     NCard,
     NButton,
     NInput,
+    NInputGroup,
     NSpace,
     NTag,
     NTable,
@@ -67,6 +72,9 @@ export const naive = create({
     NCode,
     NDescriptions,
     NDescriptionsItem,
+    NGlobalStyle,
+    NTransfer,
+    NDynamicInput,
   ],
 });
 

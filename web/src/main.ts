@@ -1,6 +1,7 @@
 import { createApp } from 'vue';
 import App from './App.vue';
 import naive from './naive-ui-provider';
+import 'virtual:uno.css';
 
 const app = createApp(App);
 

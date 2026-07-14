@@ -28,10 +28,36 @@ import { createContext } from '../core/context.js';
 import { listSkills, getSkillDetail, deploySkill, undeploySkill, removeSkill, listBackups } from '../core/skill-manager.js';
 import { installGitHubSkill, installLocalSkill } from '../core/installer.js';
 import { checkAllUpdates, checkForUpdate } from '../core/version-manager.js';
+import {
+  isGitInitialized,
+  initGit,
+  getSyncStatus,
+  pushSync,
+  pullSync,
+  getRemotes,
+  setRemoteUrl,
+  getCommitLog,
+  getBranchInfo,
+  getChangedFiles,
+  getGitDiff,
+} from '../core/sync-manager.js';
+import type { ConflictStrategy } from '../lib/types.js';
 import { searchLocal, searchRemote, searchAll } from '../lib/search.js';
 import { getAgents, detectInstalledAgents } from '../lib/agents.js';
 import { listAllTags, addTag, removeTag, getSkillTags } from '../lib/tags.js';
 import { readConfig } from '../config.js';
+import {
+  getAllProviders,
+  getActiveProvider,
+  setActiveProvider,
+  addCustomProvider,
+  removeCustomProvider,
+  getApiKey,
+  setApiKey,
+  removeApiKey,
+  hasApiKey,
+  generateCommitMessage,
+} from '../lib/ai-provider.js';
 import { readLock } from '../lib/lock.js';
 import { getHomeDir, skillMdPath } from '../lib/paths.js';
 
@@ -328,6 +354,206 @@ app.post('/api/skills/*/tags', async (c) => {
 
     const tags = getSkillTags(name);
     return c.json({ success: true, tags });
+  } catch (e) {
+    return c.json({ error: (e as Error).message }, 500);
+  }
+});
+
+// ─── Git 同步 ─────────────────────────────────────
+
+// 获取同步状态（含远程仓库、分支、变更文件等详情）
+app.get('/api/sync/status', async (c) => {
+  try {
+    const ctx = createContext();
+    const syncStatus = await getSyncStatus(ctx);
+    const remotes = await getRemotes(ctx);
+    const branchInfo = await getBranchInfo(ctx);
+    const changedFiles = await getChangedFiles(ctx);
+
+    return c.json({
+      ...syncStatus,
+      remotes,
+      branch: branchInfo.current,
+      tracking: branchInfo.tracking,
+      changedFiles,
+    });
+  } catch (e) {
+    return c.json({ error: (e as Error).message }, 500);
+  }
+});
+
+// 获取提交历史
+app.get('/api/sync/log', async (c) => {
+  try {
+    const ctx = createContext();
+    const limit = parseInt(c.req.query('limit') ?? '20', 10);
+    const commits = await getCommitLog(ctx, limit);
+    return c.json({ commits });
+  } catch (e) {
+    return c.json({ error: (e as Error).message }, 500);
+  }
+});
+
+// 推送变更到远程
+app.post('/api/sync/push', async (c) => {
+  try {
+    const ctx = createContext();
+    const body = await c.req.json<{ message?: string }>().catch(() => ({ message: undefined }));
+    const result = await pushSync(ctx, { message: body.message });
+    return c.json(result);
+  } catch (e) {
+    return c.json({ success: false, pushed: 0, pulled: 0, conflicts: [], error: (e as Error).message }, 500);
+  }
+});
+
+// 拉取远程变更
+app.post('/api/sync/pull', async (c) => {
+  try {
+    const ctx = createContext();
+    const body = await c.req.json<{ strategy?: ConflictStrategy }>().catch(() => ({ strategy: undefined }));
+    const result = await pullSync(ctx, { strategy: body.strategy });
+    return c.json(result);
+  } catch (e) {
+    return c.json({ success: false, pushed: 0, pulled: 0, conflicts: [], error: (e as Error).message }, 500);
+  }
+});
+
+// 初始化 Git 仓库
+app.post('/api/sync/init', async (c) => {
+  try {
+    const ctx = createContext();
+    if (!isGitInitialized()) {
+      await initGit(ctx);
+    }
+    return c.json({ success: true });
+  } catch (e) {
+    return c.json({ error: (e as Error).message }, 500);
+  }
+});
+
+// 设置远程仓库 URL
+app.post('/api/sync/remote', async (c) => {
+  try {
+    const ctx = createContext();
+    const body = await c.req.json<{ name?: string; url: string }>();
+    const name = body.name ?? 'origin';
+    if (!body.url) {
+      return c.json({ error: '缺少 url 参数' }, 400);
+    }
+    await setRemoteUrl(ctx, name, body.url);
+    return c.json({ success: true });
+  } catch (e) {
+    return c.json({ error: (e as Error).message }, 500);
+  }
+});
+
+// ─── AI 提供商管理 ──────────────────────────────────
+
+// 获取所有厂商（含配置状态）
+app.get('/api/ai/providers', (c) => {
+  try {
+    const providers = getAllProviders();
+    const active = getActiveProvider();
+    const result = providers.map(p => ({
+      ...p,
+      hasKey: hasApiKey(p.id),
+      isActive: active?.provider.id === p.id,
+    }));
+    return c.json({
+      providers: result,
+      activeProvider: active?.provider.id ?? null,
+      activeModel: active?.model ?? null,
+    });
+  } catch (e) {
+    return c.json({ error: (e as Error).message }, 500);
+  }
+});
+
+// 设置活跃厂商 + 模型
+app.post('/api/ai/active', async (c) => {
+  try {
+    const body = await c.req.json<{ provider: string; model: string }>();
+    if (!body.provider || !body.model) {
+      return c.json({ error: '缺少 provider 或 model 参数' }, 400);
+    }
+    setActiveProvider(body.provider, body.model);
+    return c.json({ success: true });
+  } catch (e) {
+    return c.json({ error: (e as Error).message }, 500);
+  }
+});
+
+// 设置 API Key
+app.post('/api/ai/key', async (c) => {
+  try {
+    const body = await c.req.json<{ provider: string; key: string }>();
+    if (!body.provider || !body.key) {
+      return c.json({ error: '缺少 provider 或 key 参数' }, 400);
+    }
+    setApiKey(body.provider, body.key);
+    return c.json({ success: true });
+  } catch (e) {
+    return c.json({ error: (e as Error).message }, 500);
+  }
+});
+
+// 删除 API Key
+app.delete('/api/ai/key/:provider', (c) => {
+  try {
+    const provider = c.req.param('provider');
+    removeApiKey(provider);
+    return c.json({ success: true });
+  } catch (e) {
+    return c.json({ error: (e as Error).message }, 500);
+  }
+});
+
+// 添加自定义厂商
+app.post('/api/ai/custom', async (c) => {
+  try {
+    const body = await c.req.json<{
+      id: string; name: string; baseUrl: string;
+      models: string[]; defaultModel: string; iconColor?: string;
+    }>();
+    if (!body.id || !body.name || !body.baseUrl) {
+      return c.json({ error: '缺少必要参数' }, 400);
+    }
+    addCustomProvider({
+      id: body.id,
+      name: body.name,
+      baseUrl: body.baseUrl,
+      models: body.models.length > 0 ? body.models : [body.defaultModel],
+      defaultModel: body.defaultModel ?? body.models[0] ?? 'default',
+      iconColor: body.iconColor,
+      custom: true,
+    });
+    return c.json({ success: true });
+  } catch (e) {
+    return c.json({ error: (e as Error).message }, 500);
+  }
+});
+
+// 删除自定义厂商
+app.delete('/api/ai/custom/:provider', (c) => {
+  try {
+    const provider = c.req.param('provider');
+    removeCustomProvider(provider);
+    return c.json({ success: true });
+  } catch (e) {
+    return c.json({ error: (e as Error).message }, 500);
+  }
+});
+
+// AI 生成 commit 消息
+app.post('/api/ai/generate-commit', async (c) => {
+  try {
+    const ctx = createContext();
+    const { diff, files } = await getGitDiff(ctx);
+    if (!diff && files.length === 0) {
+      return c.json({ error: '无变更内容可分析' }, 400);
+    }
+    const message = await generateCommitMessage(diff, files);
+    return c.json({ message, fileCount: files.length });
   } catch (e) {
     return c.json({ error: (e as Error).message }, 500);
   }

@@ -30,7 +30,7 @@
               <MdPreview
                 v-else
                 :modelValue="detail.skillMd"
-                :theme="'dark'"
+                :theme="'light'"
                 class="md-preview"
               />
             </div>
@@ -338,8 +338,8 @@ onMounted(() => loadDetail());
   margin: 0 auto;
 }
 
-.detail-header {
-  margin: 16px 0 24px;
+.detail-page .detail-header {
+  margin: 12px 0 24px;
 }
 
 .header-top {
@@ -350,13 +350,16 @@ onMounted(() => loadDetail());
 
 .skill-title {
   margin: 0;
-  font-size: 20px;
+  font-size: 22px;
+  font-weight: 700;
+  color: #1d1d1f;
+  letter-spacing: -0.02em;
 }
 
 .skill-desc {
   margin: 8px 0 0;
   font-size: 14px;
-  color: var(--text-color-3, #999);
+  color: #6e6e73;
 }
 
 .md-preview-container {
@@ -364,7 +367,8 @@ onMounted(() => loadDetail());
 }
 
 .md-preview {
-  --md-color: #e0e0e0;
+  --md-color: #1d1d1f;
+  border-radius: 12px;
 }
 
 .backup-item {
@@ -375,13 +379,13 @@ onMounted(() => loadDetail());
 }
 
 .backup-time {
-  color: var(--text-color-3, #999);
+  color: #86868b;
 }
 
 .backup-dir {
   font-family: 'SF Mono', Monaco, monospace;
   font-size: 12px;
-  color: var(--primary-color, #63e2b7);
+  color: #007aff;
 }
 
 .deploy-section,

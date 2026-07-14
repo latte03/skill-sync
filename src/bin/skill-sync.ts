@@ -32,7 +32,7 @@ const program = new Command();
 program
   .name('skill-sync')
   .description('跨端跨 Agent 的 AI Skill 统一管理工具')
-  .version(CLI_VERSION);
+  .version(CLI_VERSION, '-v, --version');
 
 // ─── init ────────────────────────────────────────
 program

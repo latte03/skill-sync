@@ -152,6 +152,10 @@ async function resolveUndeploy(conflict: ConflictInfo) {
   margin: 0 auto;
 }
 
+.conflicts-page .page-header {
+  margin-bottom: 20px;
+}
+
 .page-header {
   display: flex;
   align-items: center;
@@ -161,7 +165,10 @@ async function resolveUndeploy(conflict: ConflictInfo) {
 
 .page-header h3 {
   margin: 0;
-  font-size: 16px;
+  font-size: 17px;
+  font-weight: 700;
+  color: #1d1d1f;
+  letter-spacing: -0.01em;
 }
 
 .conflict-list {
@@ -182,7 +189,7 @@ async function resolveUndeploy(conflict: ConflictInfo) {
 
 .conflict-agent {
   font-size: 13px;
-  color: var(--text-color-3, #999);
+  color: #86868b;
 }
 
 .conflict-body {
@@ -199,7 +206,7 @@ async function resolveUndeploy(conflict: ConflictInfo) {
 .conflict-path {
   font-family: 'SF Mono', Monaco, monospace;
   font-size: 12px;
-  color: var(--primary-color, #63e2b7);
+  color: #007aff;
   word-break: break-all;
 }
 

@@ -320,7 +320,7 @@ onMounted(() => refresh());
 
 <style scoped>
 .manage-page {
-  max-width: 1200px;
+  max-width: 1100px;
   margin: 0 auto;
 }
 
@@ -333,12 +333,15 @@ onMounted(() => refresh());
 
 .page-header h3 {
   margin: 0;
-  font-size: 16px;
+  font-size: 17px;
+  font-weight: 700;
+  color: #1d1d1f;
+  letter-spacing: -0.01em;
 }
 
 .skill-name-cell {
   cursor: pointer;
-  color: var(--primary-color, #63e2b7);
+  color: #007aff;
   font-weight: 500;
 }
 
@@ -359,6 +362,6 @@ onMounted(() => refresh());
 
 .tag-count {
   font-size: 12px;
-  color: var(--text-color-3, #999);
+  color: #86868b;
 }
 </style>

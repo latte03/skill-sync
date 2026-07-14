@@ -81,6 +81,56 @@ export interface ConflictInfo {
   detail: string;
 }
 
+// ─── Git 同步类型 ──────────────────────────────────
+
+export interface SyncStatusInfo {
+  isRepo: boolean;
+  hasRemote: boolean;
+  uncommittedChanges: number;
+  ahead: number;
+  behind: number;
+  remotes: Array<{ name: string; fetchUrl: string; pushUrl: string }>;
+  branch: string | null;
+  tracking: string | null;
+  changedFiles: Array<{ path: string; status: string }>;
+}
+
+export interface SyncCommit {
+  hash: string;
+  date: string;
+  message: string;
+  author: string;
+  refs: string;
+}
+
+export interface SyncResult {
+  success: boolean;
+  pushed: number;
+  pulled: number;
+  conflicts: string[];
+  error?: string;
+}
+
+// ─── AI 提供商类型 ──────────────────────────────────
+
+export interface AIProviderInfo {
+  id: string;
+  name: string;
+  baseUrl: string;
+  models: string[];
+  defaultModel: string;
+  iconColor?: string;
+  custom?: boolean;
+  hasKey: boolean;
+  isActive: boolean;
+}
+
+export interface AIProvidersResponse {
+  providers: AIProviderInfo[];
+  activeProvider: string | null;
+  activeModel: string | null;
+}
+
 // ─── API 函数 ─────────────────────────────────────
 
 export const api = {
@@ -147,4 +197,73 @@ export const api = {
     }),
 
   getConflicts: () => request<{ conflicts: ConflictInfo[] }>('/conflicts'),
+
+  // ─── Git 同步 ─────────────────────────────────────
+
+  getSyncStatus: () => request<SyncStatusInfo>('/sync/status'),
+
+  getSyncLog: (limit?: number) => {
+    const qs = limit ? `?limit=${limit}` : '';
+    return request<{ commits: SyncCommit[] }>(`/sync/log${qs}`);
+  },
+
+  pushSync: (message?: string) =>
+    request<SyncResult>('/sync/push', {
+      method: 'POST',
+      body: JSON.stringify({ message }),
+    }),
+
+  pullSync: (strategy?: string) =>
+    request<SyncResult>('/sync/pull', {
+      method: 'POST',
+      body: JSON.stringify({ strategy }),
+    }),
+
+  initGit: () =>
+    request<{ success: boolean }>('/sync/init', {
+      method: 'POST',
+    }),
+
+  setRemote: (url: string, name?: string) =>
+    request<{ success: boolean }>('/sync/remote', {
+      method: 'POST',
+      body: JSON.stringify({ url, name }),
+    }),
+
+  // ─── AI 提供商 ────────────────────────────────────────
+
+  getAIProviders: () => request<AIProvidersResponse>('/ai/providers'),
+
+  setActiveProvider: (provider: string, model: string) =>
+    request<{ success: boolean }>('/ai/active', {
+      method: 'POST',
+      body: JSON.stringify({ provider, model }),
+    }),
+
+  setAPIKey: (provider: string, key: string) =>
+    request<{ success: boolean }>('/ai/key', {
+      method: 'POST',
+      body: JSON.stringify({ provider, key }),
+    }),
+
+  removeAPIKey: (provider: string) =>
+    request<{ success: boolean }>(`/ai/key/${encodeURIComponent(provider)}`, {
+      method: 'DELETE',
+    }),
+
+  addCustomProvider: (data: { id: string; name: string; baseUrl: string; models: string[]; defaultModel: string; iconColor?: string }) =>
+    request<{ success: boolean }>('/ai/custom', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+
+  removeCustomProvider: (provider: string) =>
+    request<{ success: boolean }>(`/ai/custom/${encodeURIComponent(provider)}`, {
+      method: 'DELETE',
+    }),
+
+  generateCommitMessage: () =>
+    request<{ message: string; fileCount: number }>('/ai/generate-commit', {
+      method: 'POST',
+    }),
 };

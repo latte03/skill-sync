@@ -47,6 +47,43 @@ export async function initGit(ctx: SkillSyncContext): Promise<void> {
 }
 
 /**
+ * 执行 git push，自动处理首次推送的 --set-upstream
+ *
+ * 如果当前分支没有设置 upstream，会自动添加 --set-upstream origin <branch>
+ */
+async function gitPushWithUpstream(
+  git: ReturnType<typeof simpleGit>,
+  ctx: SkillSyncContext,
+): Promise<void> {
+  const status = await git.status();
+  const branch = status.current;
+
+  if (!branch) {
+    // 没有当前分支（可能是 detached HEAD），直接 push
+    ctx.logger.debug('  git push (no branch info)');
+    await git.push();
+    return;
+  }
+
+  // 检查是否有 upstream tracking
+  if (status.tracking) {
+    // 已有 upstream，直接 push
+    ctx.logger.debug(`  git push (${branch} → ${status.tracking})`);
+    await git.push();
+  } else {
+    // 没有 upstream，首次推送需要 --set-upstream
+    const remotes = await git.getRemotes(true);
+    if (remotes.length === 0) {
+      ctx.logger.debug('  git push 跳过（无远程仓库）');
+      return;
+    }
+    const remoteName = remotes[0]!.name;
+    ctx.logger.debug(`  git push --set-upstream ${remoteName} ${branch} (首次推送)`);
+    await git.push(['--set-upstream', remoteName, branch]);
+  }
+}
+
+/**
  * 获取同步状态
  */
 export async function getSyncStatus(ctx: SkillSyncContext): Promise<SyncStatus> {
@@ -90,7 +127,9 @@ export async function getSyncStatus(ctx: SkillSyncContext): Promise<SyncStatus> 
  *
  * 1. git add -A
  * 2. git commit (如果有变更)
- * 3. git push
+ * 3. git push (如果有远程)
+ *
+ * 即使工作区干净，如果有未推送的 commits 也会执行 push。
  */
 export async function pushSync(
   ctx: SkillSyncContext,
@@ -113,18 +152,21 @@ export async function pushSync(
 
   try {
     const status = await git.status();
+    const remotes = await git.getRemotes(true);
+    const hasRemote = remotes.length > 0;
 
     if (status.isClean()) {
-      // 无变更可提交
-      if (opts?.dryRun) {
-        ctx.logger.info('[dry-run] 无变更可提交');
+      // 工作区干净 — 检查是否有未推送的 commits
+      if (status.ahead > 0 && hasRemote) {
+        if (opts?.dryRun) {
+          ctx.logger.info(`[dry-run] 将推送 ${status.ahead} 个未推送的 commit`);
+          return { success: true, pushed: status.ahead, pulled: 0, conflicts: [] };
+        }
+        await gitPushWithUpstream(git, ctx);
+        return { success: true, pushed: status.ahead, pulled: 0, conflicts: [] };
       }
-      return {
-        success: true,
-        pushed: 0,
-        pulled: 0,
-        conflicts: [],
-      };
+      // 无变更可提交，也无未推送 commits
+      return { success: true, pushed: 0, pulled: 0, conflicts: [] };
     }
 
     if (opts?.dryRun) {
@@ -150,9 +192,8 @@ export async function pushSync(
     await git.commit(message);
 
     // 3. git push (如果有远程)
-    const remotes = await git.getRemotes(true);
-    if (remotes.length > 0) {
-      await git.push();
+    if (hasRemote) {
+      await gitPushWithUpstream(git, ctx);
     }
 
     return {
@@ -321,5 +362,140 @@ async function getConflictFiles(git: ReturnType<typeof simpleGit>): Promise<stri
     return status.conflicted;
   } catch {
     return [];
+  }
+}
+
+// ─── Git 信息查询（供 Web API 使用） ──────────────────────────
+
+export interface GitCommitInfo {
+  hash: string;
+  date: string;
+  message: string;
+  author: string;
+  refs: string;
+}
+
+export interface GitRemoteInfo {
+  name: string;
+  fetchUrl: string;
+  pushUrl: string;
+}
+
+export interface GitBranchInfo {
+  current: string | null;
+  tracking: string | null;
+}
+
+/**
+ * 获取远程仓库列表
+ */
+export async function getRemotes(ctx: SkillSyncContext): Promise<GitRemoteInfo[]> {
+  if (!isGitInitialized()) return [];
+  const git = getGit(ctx);
+  try {
+    const remotes = await git.getRemotes(true);
+    return remotes.map(r => ({
+      name: r.name,
+      fetchUrl: r.refs?.fetch ?? '',
+      pushUrl: r.refs?.push ?? '',
+    }));
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * 设置远程仓库 URL（如果 origin 不存在则添加，存在则修改）
+ */
+export async function setRemoteUrl(ctx: SkillSyncContext, name: string, url: string): Promise<void> {
+  const git = getGit(ctx);
+  const remotes = await git.getRemotes(true);
+  const exists = remotes.some(r => r.name === name);
+  if (exists) {
+    await git.removeRemote(name);
+  }
+  await git.addRemote(name, url);
+  ctx.logger.debug(`  远程仓库 ${name} 已设置为 ${url}`);
+}
+
+/**
+ * 获取提交历史
+ */
+export async function getCommitLog(ctx: SkillSyncContext, limit: number = 20): Promise<GitCommitInfo[]> {
+  if (!isGitInitialized()) return [];
+  const git = getGit(ctx);
+  try {
+    const log = await git.log({ maxCount: limit });
+    return log.all.map(entry => ({
+      hash: entry.hash,
+      date: entry.date,
+      message: entry.message,
+      author: entry.author_name,
+      refs: entry.refs ?? '',
+    }));
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * 获取分支信息
+ */
+export async function getBranchInfo(ctx: SkillSyncContext): Promise<GitBranchInfo> {
+  if (!isGitInitialized()) return { current: null, tracking: null };
+  const git = getGit(ctx);
+  try {
+    const status = await git.status();
+    return {
+      current: status.current,
+      tracking: status.tracking,
+    };
+  } catch {
+    return { current: null, tracking: null };
+  }
+}
+
+/**
+ * 获取变更文件列表（未提交的）
+ */
+export async function getChangedFiles(ctx: SkillSyncContext): Promise<Array<{ path: string; status: string }>> {
+  if (!isGitInitialized()) return [];
+  const git = getGit(ctx);
+  try {
+    const status = await git.status();
+    const files: Array<{ path: string; status: string }> = [];
+    for (const f of status.not_added) files.push({ path: f, status: 'untracked' });
+    for (const f of status.modified) files.push({ path: f, status: 'modified' });
+    for (const f of status.deleted) files.push({ path: f, status: 'deleted' });
+    for (const f of status.staged) files.push({ path: f, status: 'staged' });
+    return files;
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * 获取 git diff 内容（供 AI 分析生成 commit 消息）
+ *
+ * 返回工作区与 HEAD 之间的所有差异（staged + unstaged）
+ */
+export async function getGitDiff(ctx: SkillSyncContext): Promise<{ diff: string; files: string[] }> {
+  if (!isGitInitialized()) return { diff: '', files: [] };
+  const git = getGit(ctx);
+  try {
+    const status = await git.status();
+    const files = [
+      ...status.not_added,
+      ...status.modified,
+      ...status.deleted,
+      ...status.staged,
+    ];
+    if (files.length === 0) return { diff: '', files: [] };
+
+    // git diff HEAD 包含所有变更（staged + unstaged）
+    const diff = await git.diff(['HEAD']);
+    return { diff, files };
+  } catch {
+    return { diff: '', files: [] };
   }
 }

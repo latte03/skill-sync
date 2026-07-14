@@ -158,7 +158,7 @@ async function installFromSearch(item: SearchResult) {
 
 <style scoped>
 .search-page {
-  max-width: 800px;
+  max-width: 900px;
   margin: 0 auto;
 }
 
@@ -172,8 +172,9 @@ async function installFromSearch(item: SearchResult) {
 
 .section-title {
   font-size: 14px;
-  color: var(--text-color-2, #ccc);
+  color: #6e6e73;
   margin-bottom: 12px;
+  font-weight: 600;
 }
 
 .result-cards {
@@ -200,13 +201,14 @@ async function installFromSearch(item: SearchResult) {
 .result-source {
   margin: 0;
   font-size: 12px;
-  color: var(--text-color-3, #999);
+  color: #86868b;
+  font-family: 'SF Mono', Monaco, monospace;
 }
 
 .result-desc {
   margin: 4px 0 8px;
   font-size: 13px;
-  color: var(--text-color-3, #999);
+  color: #6e6e73;
 }
 
 .empty-state {

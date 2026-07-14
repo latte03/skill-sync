@@ -6,9 +6,16 @@
   "bin": {
     "skill-sync": "./dist/bin/skill-sync.js"
   },
+  "files": [
+    "dist/**/*",
+    "README.md",
+    "LICENSE"
+  ],
   "scripts": {
     "build": "tsc",
     "build:web": "vite build --config web/vite.config.ts",
+    "build:all": "tsc && vite build --config web/vite.config.ts",
+    "prepack": "tsc && vite build --config web/vite.config.ts",
     "dev": "tsc --watch",
     "dev:web": "vite --config web/vite.config.ts",
     "dev:all": "concurrently \"pnpm dev\" \"pnpm dev:web\" \"pnpm start -- ui --no-open\"",
@@ -30,32 +37,35 @@
   },
   "dependencies": {
     "@hono/node-server": "^2.0.8",
-    "@vicons/ionicons5": "^0.13.0",
     "chalk": "^5.4.1",
     "cli-table3": "^0.6.5",
     "commander": "^12.1.0",
     "hono": "^4.12.30",
     "inquirer": "^12.3.0",
-    "naive-ui": "^2.44.1",
+    "open": "^11.0.0",
     "ora": "^8.1.1",
     "semver": "^7.6.3",
     "simple-git": "^3.27.0",
-    "vue": "^3.5.39",
     "yaml": "^2.6.1"
   },
   "devDependencies": {
+    "@lobehub/icons-static-svg": "^1.91.0",
     "@types/node": "^22.10.0",
     "@types/semver": "^7.5.8",
+    "@unocss/preset-typography": "^66.7.5",
     "@unocss/preset-uno": "^66.7.5",
+    "@unocss/preset-wind3": "^66.7.5",
+    "@vicons/ionicons5": "^0.13.0",
     "@vitejs/plugin-vue": "^6.0.7",
     "@vitest/coverage-v8": "^2.1.8",
     "concurrently": "^10.0.3",
     "md-editor-v3": "^6.5.3",
     "msw": "^2.6.8",
-    "open": "^11.0.0",
+    "naive-ui": "^2.44.1",
     "typescript": "^5.7.2",
     "unocss": "^66.7.5",
     "vite": "^8.1.4",
-    "vitest": "^2.1.8"
+    "vitest": "^2.1.8",
+    "vue": "^3.5.39"
   }
 }

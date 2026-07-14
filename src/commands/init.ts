@@ -167,10 +167,36 @@ export async function initCommand(opts: InitOpts): Promise<void> {
         await git.init();
         console.log(chalk.gray('  ✓ git init'));
 
-        // .gitignore
-        const gitignoreContent = `# SkillSync\ncache/\ntemp/\n*.log\nsecrets.yaml\n`;
+        // .gitignore — 白名单模式：默认忽略一切，只允许需要跟踪的文件
+        // 这样 secrets.yaml、cache/、temp/、web/ 等永远不会被提交
+        const gitignoreContent = [
+          '# SkillSync .gitignore — 白名单模式',
+          '# 默认忽略所有文件，只跟踪下方显式允许的文件/目录',
+          '',
+          '# 忽略一切',
+          '/*',
+          '',
+          '# 显式允许跟踪的文件',
+          '!/.gitignore',
+          '!/config.yaml',
+          '!/skills-lock.json',
+          '!/tags.yaml',
+          '',
+          '# 显式允许跟踪的目录',
+          '!/skills/',
+          '',
+          '# skills/ 下的备份目录不跟踪',
+          '/skills/**/.backup/',
+          '',
+          '# OS / 编辑器',
+          '.DS_Store',
+          'Thumbs.db',
+          '*.swp',
+          '*.swo',
+          '',
+        ].join('\n');
         fs.writeFileSync(path.join(homeDir, '.gitignore'), gitignoreContent);
-        console.log(chalk.gray('  ✓ .gitignore'));
+        console.log(chalk.gray('  ✓ .gitignore (白名单模式: secrets.yaml/cache/temp/web 自动排除)'));
 
         // 初始提交
         await git.add('.');

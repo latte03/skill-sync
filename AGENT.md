@@ -187,6 +187,32 @@ skill-sync/
 └── ui/                             # Phase 2: Web Dashboard
 ```
 
+> **注意**：Phase 2 Web Dashboard 实际位于 `web/` 目录，结构如下：
+>
+> ```
+> web/
+> ├── src/
+> │   ├── api.ts                 # API 客户端
+> │   ├── App.vue                # 主框架（侧边栏 + 内容区）
+> │   ├── main.ts                # 入口
+> │   ├── env.d.ts               # TypeScript 声明（svg?raw 等）
+> │   ├── naive-ui-provider.ts   # Naive UI 全局组件注册
+> │   ├── components/            # 通用组件（kebab-case）
+> │   │   └── brand-icon.vue     # @lobehub/icons-static-svg 品牌图标
+> │   ├── composables/           # Vue composables（use-xxx.ts）
+> │   └── pages/                 # 页面组件（PascalCase）
+> │       ├── SkillsPage.vue
+> │       ├── SearchPage.vue
+> │       ├── ManagePage.vue
+> │       ├── SyncPage.vue
+> │       ├── SettingsPage.vue
+> │       ├── ConflictsPage.vue
+> │       ├── StatusPage.vue
+> │       └── SkillDetailPage.vue
+> ├── uno.config.ts              # UnoCSS 配置（tailwind-like）
+> └── vite.config.ts            # Vite 配置
+> ```
+
 ## 开发流程
 
 1. **先读 PRD**：主 PRD（`PRD-SkillSync-v1.2.md`）包含架构、数据模型、CLI 命令规范
@@ -199,7 +225,7 @@ skill-sync/
 
 | 依赖 | 版本 |
 |------|------|
-| Node.js | ≥ 20.0.0 |
+| Node.js | >= 24.0.0 |
 | TypeScript | ≥ 5.5 |
 | Commander.js | ≥ 12.0 |
 | chalk | ^5.0 (ESM) |
@@ -212,3 +238,62 @@ skill-sync/
 | semver | ^7.0 |
 
 > Phase 2 额外依赖：Vue 3 + Vite + Naive UI + UnoCSS + Hono + md-editor-v3
+
+---
+
+## 前端开发规范
+
+### 样式层：UnoCSS (Tailwind-like)
+
+- 使用 UnoCSS 原子化 CSS，写法类似 Tailwind CSS（`flex`, `items-center`, `text-sm`, `bg-white/60` 等）
+- 配置文件：`web/uno.config.ts`，已预设 `presetUno()` + `presetIcons()` + `presetTypography()`
+- 自定义快捷类（shortcuts）：`glass-card`、`glass-card-hover`、`section-title`、`section-desc`
+- 自定义主题色：`apple-blue`、`apple-green`、`apple-orange`、`apple-red`、`apple-purple`、`apple-gray`、`apple-dark`
+- **优先使用 UnoCSS 原子类**，仅在需要动态计算样式（如 `v-bind` style）时使用 `<style scoped>`
+- 避免在 `<style scoped>` 中重复 UnoCSS 已覆盖的能力
+
+### 命名规范
+
+- 组件文件名：**kebab-case**（短横线），如 `brand-icon.vue`、`skill-card.vue`
+- 页面文件名：**PascalCase** 保持 Vue 惯例，如 `SkillsPage.vue`、`SettingsPage.vue`
+- 变量/函数：camelCase
+- 类型/接口：PascalCase
+- CSS 类名：kebab-case
+- API 端点：kebab-case（如 `/api/sync/status`）
+
+### 工具方法
+
+- **先查 npm 生态**，避免重复造轮子
+- 日期处理：`date-fns`（已安装）
+- 工具函数：`lodash-es`（按需安装）
+- HTTP 请求：原生 `fetch`（项目内已有封装）
+- 状态管理：Vue 3 原生 `ref`/`reactive`/`computed`，复杂场景用 Pinia
+- 仅在没有现成库满足需求时才自行实现
+
+### Hooks / Composables
+
+- 当逻辑复杂度提升或需要在多个组件间复用时，抽取为 **composable**（`use-xxx.ts`）
+- 存放目录：`web/src/composables/`
+- 命名：`use-xxx.ts`（kebab-case），导出函数 `useXxx`
+- 示例：`use-sync-status.ts`、`use-ai-providers.ts`
+
+### 品牌图标
+
+- 使用 `@lobehub/icons-static-svg` 包（非 React 版本），通过 Vite `?raw` 导入 SVG
+- 封装在 `web/src/components/brand-icon.vue` 组件中
+- **不要**使用 `simple-icons` 或 `@lobehub/icons`（React 版本，依赖过重）
+- TypeScript 声明：`web/src/env.d.ts` 中声明 `*.svg?raw` 模块
+
+### 组件化原则
+
+- 通用 UI 片段抽取为组件，存放在 `web/src/components/`
+- 页面级组件存放在 `web/src/pages/`
+- 组件 props 使用 `withDefaults(defineProps<>(), {})` 类型安全写法
+- 事件使用 `defineEmits<{}>()` 类型安全写法
+
+### AI Provider 约定
+
+- 后端厂商注册表：`src/lib/ai-provider.ts`，预设 11 个厂商
+- API Key 存储在 `secrets.yaml`（权限 0600），不存入 `config.yaml`
+- 所有厂商使用 OpenAI 兼容格式（`/chat/completions`）
+- 添加新厂商时同步更新 `brand-icon.vue` 的 `ICON_MAP`
