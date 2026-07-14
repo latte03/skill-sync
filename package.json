@@ -1,0 +1,46 @@
+{
+  "name": "skill-sync",
+  "version": "0.1.0",
+  "description": "跨端跨 Agent 的 AI Skill 统一管理工具",
+  "type": "module",
+  "bin": {
+    "skill-sync": "./dist/bin/skill-sync.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "start": "node dist/bin/skill-sync.js",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage"
+  },
+  "keywords": [
+    "skill",
+    "agent",
+    "sync",
+    "cli",
+    "ai"
+  ],
+  "license": "MIT",
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "dependencies": {
+    "chalk": "^5.4.1",
+    "cli-table3": "^0.6.5",
+    "commander": "^12.1.0",
+    "inquirer": "^12.3.0",
+    "ora": "^8.1.1",
+    "semver": "^7.6.3",
+    "simple-git": "^3.27.0",
+    "yaml": "^2.6.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "@types/semver": "^7.5.8",
+    "@vitest/coverage-v8": "^2.1.8",
+    "msw": "^2.6.8",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
+  }
+}
