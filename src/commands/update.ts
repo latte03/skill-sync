@@ -16,7 +16,7 @@
 import chalk from 'chalk';
 import { createContext } from '../core/context.js';
 import { checkForUpdate, checkAllUpdates, updateSkill, updateAllSkills, listSkillBackups, restoreFromBackup } from '../core/version-manager.js';
-import { getExitCode, formatError, PartialFailureError } from '../lib/errors.js';
+import { getExitCode, PartialFailureError, handleCommandError } from '../lib/errors.js';
 
 export async function updateCommand(name: string | undefined, opts: {
   all?: boolean;
@@ -131,8 +131,7 @@ export async function updateCommand(name: string | undefined, opts: {
       }
     }
   } catch (e) {
-    console.error(chalk.red(`\n✗ ${formatError(e)}`));
-    process.exit(getExitCode(e));
+    handleCommandError(e);
   }
 }
 
@@ -183,7 +182,6 @@ export function switchCommand(name: string, opts: {
     console.log(chalk.gray(`  备份来源: ${result.backupDir}`));
     console.log(chalk.gray('\n  注意: 恢复后需手动重新 deploy'));
   } catch (e) {
-    console.error(chalk.red(`\n✗ ${formatError(e)}`));
-    process.exit(getExitCode(e));
+    handleCommandError(e);
   }
 }

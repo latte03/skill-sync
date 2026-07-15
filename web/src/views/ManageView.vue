@@ -1,8 +1,8 @@
 <template>
   <div class="manage-page">
-    <div class="page-header">
-      <h3>本地 Skill 管理</h3>
-      <n-button size="small" @click="refresh" :loading="loading">刷新</n-button>
+    <div class="page-title-row">
+      <h1 class="page-title">本地 Skill 管理</h1>
+      <n-button size="small" quaternary @click="refresh" :loading="loading">刷新</n-button>
     </div>
 
     <n-spin :show="loading">
@@ -178,10 +178,11 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue';
 import { useMessage } from 'naive-ui';
+import { useRouter } from 'vue-router';
 import { api, type SkillInfo, type AgentInfo } from '../api';
 
-const emit = defineEmits<{ viewDetail: [name: string] }>();
 const message = useMessage();
+const router = useRouter();
 
 const loading = ref(false);
 const skills = ref<SkillInfo[]>([]);
@@ -247,7 +248,7 @@ async function refresh() {
 }
 
 function viewDetail(name: string) {
-  emit('viewDetail', name);
+  router.push({ name: 'skillDetail', params: { name } });
 }
 
 function openDeployDialog(skill: SkillInfo) {
@@ -346,24 +347,9 @@ onMounted(() => refresh());
   margin: 0 auto;
 }
 
-.page-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 16px;
-}
-
-.page-header h3 {
-  margin: 0;
-  font-size: 17px;
-  font-weight: 700;
-  color: #1d1d1f;
-  letter-spacing: -0.01em;
-}
-
 .skill-name-cell {
   cursor: pointer;
-  color: #007aff;
+  color: var(--accent);
   font-weight: 500;
 }
 
@@ -384,6 +370,6 @@ onMounted(() => refresh());
 
 .tag-count {
   font-size: 12px;
-  color: #86868b;
+  color: var(--text-3);
 }
 </style>

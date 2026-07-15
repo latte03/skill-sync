@@ -11,7 +11,7 @@
 
 import chalk from 'chalk';
 import { addTag, removeTag, listAllTags, listSkillsByTag } from '../lib/tags.js';
-import { formatError } from '../lib/errors.js';
+import { handleCommandError } from '../lib/errors.js';
 
 export function tagCommand(action: string, name: string | undefined, tag: string | undefined): void {
   try {
@@ -72,7 +72,6 @@ export function tagCommand(action: string, name: string | undefined, tag: string
         process.exit(2);
     }
   } catch (e) {
-    console.error(chalk.red(`\n✗ ${formatError(e)}`));
-    process.exit(1);
+    handleCommandError(e);
   }
 }

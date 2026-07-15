@@ -51,13 +51,20 @@ export function sanitizeMetadata(str: string): string {
 
 /**
  * 将 skill 名转为安全的 kebab-case 名称
+ * 支持嵌套路径（如 write-a-skill/engineering/tdd）
  * 防止路径遍历攻击（如 ../../etc/passwd）
+ *
+ * 安全策略：
+ * 1. 先将 ".."（路径遍历段）替换为 "--"，使其无法向上跳转
+ * 2. 过滤非法字符（保留 / 用于嵌套路径，保留 . _ - 用于常规命名）
+ * 3. 折叠连续连字符，去除首尾连字符和斜杠
  */
 export function sanitizeName(name: string): string {
   return name
-    .replace(/[^a-zA-Z0-9._-]/g, '-')
-    .replace(/--+/g, '-')
-    .replace(/^-|-$/g, '')
+    .replace(/\.\./g, '--') // 中和路径遍历： ".." → "--"
+    .replace(/[^a-zA-Z0-9._/-]/g, '-') // 过滤非法字符（保留 /）
+    .replace(/--+/g, '-') // 折叠连续连字符
+    .replace(/^[-/]+|[-/]+$/g, '') // 去除首尾连字符和斜杠
     || 'unnamed-skill';
 }
 

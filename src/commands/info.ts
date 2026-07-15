@@ -14,7 +14,7 @@ import { listSkillBackups } from '../core/version-manager.js';
 import { getLockEntry } from '../lib/lock.js';
 import { readManifest } from '../lib/manifest.js';
 import { getAgentSkillDir, getAgents } from '../lib/agents.js';
-import { formatError } from '../lib/errors.js';
+import { handleCommandError } from '../lib/errors.js';
 import type { LockEntry } from '../lib/types.js';
 
 export function infoCommand(name: string): void {
@@ -102,7 +102,6 @@ export function infoCommand(name: string): void {
 
     console.log();
   } catch (e) {
-    console.error(chalk.red(`\n✗ ${formatError(e)}`));
-    process.exit(1);
+    handleCommandError(e);
   }
 }

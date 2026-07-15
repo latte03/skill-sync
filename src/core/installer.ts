@@ -32,6 +32,7 @@ import { setLockEntry, hasLockEntry, getAllLockSkillNames } from '../lib/lock.js
 import { skillRepoPath } from '../lib/paths.js';
 import { extractPackageDependencies, installDependencies, checkSkillDependencies } from '../lib/dependencies.js';
 import { detectInstalledAgents } from '../lib/agents.js';
+import { copyDirRecursive } from '../lib/fs-utils.js';
 import { deploySkill } from './skill-manager.js';
 import type { SkillSyncContext } from './context.js';
 import type {
@@ -48,25 +49,33 @@ import type {
 
 /**
  * 从本地目录发现 skill（递归查找 SKILL.md）
+ * 支持嵌套 skill 目录结构（如 write-a-skill/engineering/tdd）
  */
-export function discoverLocalSkills(dir: string, maxDepth = 3): DiscoveredSkill[] {
+export function discoverLocalSkills(dir: string, maxDepth = 5): DiscoveredSkill[] {
   const results: DiscoveredSkill[] = [];
   if (!fs.existsSync(dir)) return results;
+
+  const baseDir = dir;
 
   function walk(currentDir: string, depth: number): void {
     if (depth > maxDepth) return;
     const entries = fs.readdirSync(currentDir, { withFileTypes: true });
 
+    // 首先检查当前目录是否有 SKILL.md（根目录除外）
+    const currentSkillMd = path.join(currentDir, 'SKILL.md');
+    if (depth > 0 && fs.existsSync(currentSkillMd)) {
+      const relativePath = path.relative(baseDir, currentDir);
+      // 使用 relativePath 作为默认 name，保持嵌套目录结构
+      results.push(buildSkillEntry(relativePath, currentDir, currentSkillMd, relativePath));
+      // 继续递归扫描子目录，因为可能存在嵌套 skill
+    }
+
     for (const entry of entries) {
       if (entry.name.startsWith('.') || entry.name === 'node_modules') continue;
 
       if (entry.isDirectory() || entry.isSymbolicLink()) {
-        const skillMdPath = path.join(currentDir, entry.name, 'SKILL.md');
-        if (fs.existsSync(skillMdPath)) {
-          results.push(buildSkillEntry(entry.name, path.join(currentDir, entry.name), skillMdPath));
-        } else {
-          walk(path.join(currentDir, entry.name), depth + 1);
-        }
+        const subDir = path.join(currentDir, entry.name);
+        walk(subDir, depth + 1);
       }
     }
   }
@@ -74,7 +83,7 @@ export function discoverLocalSkills(dir: string, maxDepth = 3): DiscoveredSkill[
   // 检查根目录的 SKILL.md
   const rootSkillMd = path.join(dir, 'SKILL.md');
   if (fs.existsSync(rootSkillMd)) {
-    results.push(buildSkillEntry(path.basename(dir), dir, rootSkillMd));
+    results.push(buildSkillEntry(path.basename(dir), dir, rootSkillMd, path.basename(dir)));
   }
 
   // 检查 skills/ 子目录
@@ -96,17 +105,22 @@ export function discoverLocalSkills(dir: string, maxDepth = 3): DiscoveredSkill[
 
 /**
  * 从 SKILL.md 构建 DiscoveredSkill
+ * 
+ * 对于本地导入的 skill，使用 relativePath 作为 name 的默认值，保持嵌套目录结构
+ * SKILL.md 中的 name 字段仅作为描述性信息，不用于路径结构
  */
-function buildSkillEntry(dirName: string, dir: string, skillMdPath: string): DiscoveredSkill {
+function buildSkillEntry(defaultName: string, dir: string, skillMdPath: string, relativePath?: string): DiscoveredSkill {
   let rawContent = '';
   try {
     rawContent = fs.readFileSync(skillMdPath, 'utf-8');
   } catch {
-    return { name: dirName, dir, skillMdPath };
+    return { name: defaultName, dir, skillMdPath, relativePath };
   }
 
   const { data, content } = parseFrontmatter(rawContent);
-  const name = typeof data.name === 'string' ? sanitizeMetadata(data.name) : dirName;
+  // 对于本地导入，优先使用 relativePath/defaultName 作为 skill 标识名
+  // SKILL.md 中的 name 仅作为元数据，不覆盖路径结构
+  const name = defaultName;
   const description = typeof data.description === 'string' ? sanitizeMetadata(data.description) : undefined;
 
   return {
@@ -116,6 +130,7 @@ function buildSkillEntry(dirName: string, dir: string, skillMdPath: string): Dis
     description,
     metadata: Object.keys(data).length > 0 ? data : undefined,
     rawContent: content,
+    relativePath,
   };
 }
 
@@ -372,7 +387,7 @@ function installFromDiscovered(
 
   // 复制文件到中央仓库
   fs.mkdirSync(repoPath, { recursive: true });
-  copyDirContents(skill.dir, repoPath);
+  copyDirRecursive(skill.dir, repoPath, ['.backup']);
 
   return finalizeInstall(ctx, repoPath, namespace, skillName, skill.metadata ?? {}, source, opts);
 }
@@ -467,24 +482,6 @@ function finalizeInstall(
 }
 
 // ==================== 辅助函数 ====================
-
-/**
- * 递归复制目录内容（不含目录本身）
- */
-function copyDirContents(src: string, dest: string): void {
-  const entries = fs.readdirSync(src, { withFileTypes: true });
-  for (const entry of entries) {
-    if (entry.name === '.backup') continue;
-    const srcPath = path.join(src, entry.name);
-    const destPath = path.join(dest, entry.name);
-    if (entry.isDirectory()) {
-      fs.mkdirSync(destPath, { recursive: true });
-      copyDirContents(srcPath, destPath);
-    } else {
-      fs.copyFileSync(srcPath, destPath);
-    }
-  }
-}
 
 /**
  * 检测默认应分发到的 Agent（已安装的）

@@ -13,6 +13,6 @@
     "noEmit": true,
     "types": ["vite/client"]
   },
-  "include": ["src/**/*.ts", "src/**/*.vue"],
+  "include": ["src/**/*.ts", "src/**/*.vue", "../src/lib/types.ts"],
   "exclude": ["node_modules"]
 }

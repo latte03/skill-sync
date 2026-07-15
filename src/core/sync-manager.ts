@@ -9,15 +9,30 @@
  * - pull: git fetch → git merge (带冲突策略)
  * - 冲突策略: ours | theirs | manual | newer | skip
  * - dry-run: 只预览不实际执行
+ * - 支持多平台: GitHub / Gitee
+ * - 支持代理配置
  */
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { simpleGit } from 'simple-git';
+import { simpleGit, type SimpleGitOptions } from 'simple-git';
 import { getHomeDir } from '../lib/paths.js';
-import { readConfig } from '../config.js';
+import { readConfig, updateConfig } from '../config.js';
 import type { SkillSyncContext } from './context.js';
-import type { SyncResult, SyncStatus, ConflictStrategy } from '../lib/types.js';
+import type {
+  SyncResult,
+  SyncStatus,
+  ConflictStrategy,
+  GitPlatformConfig,
+  GitCommitInfo,
+  GitRemoteInfo,
+  GitBranchInfo,
+  GitPlatform,
+  GitPlatformInfo,
+  ProxyConfig,
+} from '../lib/types.js';
+import { getLazyGitHubToken } from '../lib/github.js';
+import { getGiteeToken, getUserInfo as getGiteeUserInfo } from '../lib/gitee.js';
 
 /**
  * 获取 simple-git 实例
@@ -147,7 +162,7 @@ export async function pushSync(
 
   const git = getGit(ctx);
   const config = readConfig();
-  const commitPrefix = config.sync?.github?.commitMessagePrefix ?? 'skill-sync:';
+  const commitPrefix = config.sync?.commitMessagePrefix ?? 'skill-sync:';
   const message = opts?.message ?? `${commitPrefix} sync skills`;
 
   try {
@@ -315,21 +330,52 @@ export async function pullSync(
         }
         break;
 
-      case 'newer':
-        // 按时间戳 — 先尝试自动合并，失败则 manual
+      case 'newer': {
+        // 按时间戳选择较新的版本 — 先尝试自动合并
         try {
           await git.merge(['origin/' + status.current]);
         } catch {
+          // 合并有冲突，逐文件按最后提交时间选择较新版本
           const conflicts = await getConflictFiles(git);
-          return {
-            success: false,
-            pushed: 0,
-            pulled: 0,
-            conflicts,
-            error: `自动合并失败，需手动解决: ${conflicts.join(', ')}`,
-          };
+          const resolved: string[] = [];
+          const unresolved: string[] = [];
+
+          for (const file of conflicts) {
+            const oursTime = await getLastCommitTime(git, 'HEAD', file);
+            const theirsTime = await getLastCommitTime(git, 'MERGE_HEAD', file);
+
+            if (oursTime === null && theirsTime === null) {
+              // 两边都没有提交记录，无法判断
+              unresolved.push(file);
+            } else if (oursTime === null || (theirsTime !== null && theirsTime > oursTime)) {
+              // 远程更新，采用远程
+              await git.raw(['checkout', '--theirs', '--', file]);
+              await git.add(file);
+              resolved.push(file);
+            } else {
+              // 本地更新或相同，采用本地
+              await git.raw(['checkout', '--ours', '--', file]);
+              await git.add(file);
+              resolved.push(file);
+            }
+          }
+
+          if (unresolved.length > 0) {
+            return {
+              success: false,
+              pushed: 0,
+              pulled: 0,
+              conflicts: unresolved,
+              error: `无法按时间戳自动解决冲突: ${unresolved.join(', ')}（请手动解决）`,
+            };
+          }
+
+          // 所有冲突已解决，完成合并
+          await git.commit(`Merge: 按时间戳自动解决 ${resolved.length} 个冲突`);
+          ctx.logger.info(`  按时间戳自动解决 ${resolved.length} 个冲突`);
         }
         break;
+      }
 
       case 'skip':
         // 跳过 — reset 回 fetch 前的状态
@@ -371,26 +417,29 @@ async function getConflictFiles(git: ReturnType<typeof simpleGit>): Promise<stri
   }
 }
 
+/**
+ * 获取指定 ref 最后一次修改某文件的提交时间戳（Unix 秒）
+ *
+ * 用于 newer 冲突策略：比较 HEAD 和 MERGE_HEAD 对同一文件的最后修改时间。
+ * 返回 null 表示该 ref 从未修改过此文件。
+ */
+async function getLastCommitTime(
+  git: ReturnType<typeof simpleGit>,
+  ref: string,
+  file: string,
+): Promise<number | null> {
+  try {
+    const result = await git.raw(['log', '-1', '--format=%ct', ref, '--', file]);
+    const trimmed = result.trim();
+    if (!trimmed) return null;
+    return parseInt(trimmed, 10);
+  } catch {
+    return null;
+  }
+}
+
 // ─── Git 信息查询（供 Web API 使用） ──────────────────────────
-
-export interface GitCommitInfo {
-  hash: string;
-  date: string;
-  message: string;
-  author: string;
-  refs: string;
-}
-
-export interface GitRemoteInfo {
-  name: string;
-  fetchUrl: string;
-  pushUrl: string;
-}
-
-export interface GitBranchInfo {
-  current: string | null;
-  tracking: string | null;
-}
+// 类型定义已移至 ../lib/types.ts（GitCommitInfo, GitRemoteInfo, GitBranchInfo 等）
 
 /**
  * 获取远程仓库列表
@@ -504,4 +553,157 @@ export async function getGitDiff(ctx: SkillSyncContext): Promise<{ diff: string;
   } catch {
     return { diff: '', files: [] };
   }
+}
+
+// ─── 多平台 Git 支持（GitHub / Gitee）──────────────────────────
+
+/**
+ * 获取所有 Git 平台信息
+ */
+export function getGitPlatforms(): GitPlatformInfo[] {
+  const config = readConfig();
+  const platforms: GitPlatformInfo[] = [
+    {
+      id: 'github',
+      name: 'GitHub',
+      icon: 'github',
+      baseUrl: 'https://github.com',
+      enabled: config.sync?.github?.enabled ?? false,
+      configured: !!getLazyGitHubToken(),
+      username: config.sync?.github?.username,
+      repo: config.sync?.github?.repo,
+      branch: config.sync?.github?.branch ?? 'main',
+    },
+    {
+      id: 'gitee',
+      name: 'Gitee',
+      icon: 'gitee',
+      baseUrl: 'https://gitee.com',
+      enabled: config.sync?.gitee?.enabled ?? false,
+      configured: !!getGiteeToken(),
+      username: config.sync?.gitee?.username,
+      repo: config.sync?.gitee?.repo,
+      branch: config.sync?.gitee?.branch ?? 'master',
+    },
+  ];
+  return platforms;
+}
+
+/**
+ * 获取指定平台的配置
+ */
+export function getGitPlatformConfig(platform: GitPlatform): GitPlatformConfig | undefined {
+  const config = readConfig();
+  return config.sync?.[platform];
+}
+
+/**
+ * 设置 Git 平台配置
+ */
+export function setGitPlatformConfig(platform: GitPlatform, cfg: Partial<GitPlatformConfig>): void {
+  const config = readConfig();
+  const current = config.sync?.[platform] ?? { enabled: false };
+  const updated = { ...current, ...cfg };
+
+  updateConfig({
+    sync: {
+      ...config.sync,
+      [platform]: updated,
+    },
+  });
+}
+
+/**
+ * 设置 Git 平台 Token
+ */
+export function setGitPlatformToken(platform: GitPlatform, token: string): void {
+  const config = readConfig();
+  const current = config.sync?.[platform] ?? { enabled: false };
+
+  updateConfig({
+    sync: {
+      ...config.sync,
+      [platform]: {
+        ...current,
+        token,
+      },
+    },
+  });
+}
+
+/**
+ * 清除 Git 平台 Token
+ */
+export function removeGitPlatformToken(platform: GitPlatform): void {
+  const config = readConfig();
+  const current = config.sync?.[platform];
+  if (!current) return;
+
+  const { token: _, ...rest } = current;
+  updateConfig({
+    sync: {
+      ...config.sync,
+      [platform]: rest,
+    },
+  });
+}
+
+/**
+ * 验证 Gitee Token 并获取用户信息
+ */
+export async function verifyGiteeToken(token: string): Promise<{ valid: boolean; username?: string; error?: string }> {
+  try {
+    const response = await fetch('https://gitee.com/api/v5/user', {
+      headers: {
+        'Authorization': `token ${token}`,
+        'Accept': 'application/json',
+      },
+    });
+
+    if (!response.ok) {
+      if (response.status === 401) {
+        return { valid: false, error: 'Token 无效或已过期' };
+      }
+      return { valid: false, error: `验证失败: HTTP ${response.status}` };
+    }
+
+    const data = await response.json() as { login: string };
+    return { valid: true, username: data.login };
+  } catch (e) {
+    return { valid: false, error: `网络错误: ${(e as Error).message}` };
+  }
+}
+
+/**
+ * 获取当前启用的 Git 平台
+ */
+export function getActiveGitPlatform(): GitPlatform | null {
+  const platforms = getGitPlatforms();
+  const active = platforms.find(p => p.enabled);
+  return active?.id ?? null;
+}
+
+/**
+ * 设置代理配置
+ */
+export function setProxyConfig(enabled: boolean, url?: string): void {
+  updateConfig({
+    network: {
+      proxy: {
+        enabled,
+        url: url || undefined,
+      },
+    },
+  });
+}
+
+/**
+ * 获取代理配置
+ */
+export function getProxyConfig(): ProxyConfig {
+  const config = readConfig();
+  return {
+    enabled: config.network?.proxy?.enabled ?? false,
+    url: config.network?.proxy?.url,
+  };
 }

@@ -1,3 +1,14 @@
+---
+AIGC:
+  ContentProducer: '001191110102MAD55U9H0F10002'
+  ContentPropagator: '001191110102MAD55U9H0F10002'
+  Label: '1'
+  ProduceID: '495e88fe-a05c-433a-88bb-0229433202a9'
+  PropagateID: '495e88fe-a05c-433a-88bb-0229433202a9'
+  ReservedCode1: '0c09d070-759c-4163-8251-1765f0de4449'
+  ReservedCode2: '0c09d070-759c-4163-8251-1765f0de4449'
+---
+
 # SkillSync — 跨端跨 Agent Skill 管理工具
 
 > **文档版本**: v1.2.1
@@ -1434,6 +1445,9 @@ D-01~D-21 全部决策详见 [docs/reference.md](docs/reference.md)。
 
 ### Phase 3: 生态与体验（Week 10-12）
 
+- [ ] 提供代理输入入口，方便提交到远程的时候走代理
+- [ ] 除了GitHub之外，也支持gitee
+- [ ] UI侧的GitHub Gitee绑定流程需要修改；使用 Git 平台身份凭证 进行绑定仓库。
 - [ ] skills.sh 搜索结果缓存与刷新
 - [ ] 国际化（中/英）
 - [ ] CHANGELOG 自动生成

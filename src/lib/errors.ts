@@ -15,6 +15,8 @@
  * 8 = 部分失败
  */
 
+import chalk from 'chalk';
+
 export const ExitCode = {
   Success: 0,
   GeneralError: 1,
@@ -129,4 +131,14 @@ export function getExitCode(e: unknown): number {
 export function formatError(e: unknown): string {
   if (e instanceof Error) return e.message;
   return String(e);
+}
+
+/**
+ * 统一处理命令行错误：打印红色错误消息并以正确的退出码退出
+ *
+ * 用于 CLI 命令的 catch 块，替代重复的 console.error + process.exit 样板代码。
+ */
+export function handleCommandError(e: unknown): never {
+  console.error(chalk.red(`\n✗ ${formatError(e)}`));
+  process.exit(getExitCode(e));
 }

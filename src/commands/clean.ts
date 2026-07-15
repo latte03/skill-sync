@@ -22,7 +22,7 @@ import { cachePath, skillsDirPath, backupDirPath, agentSkillDirPath } from '../l
 import { getAllLockSkillNames } from '../lib/lock.js';
 import { readManifest } from '../lib/manifest.js';
 import { getAgents } from '../lib/agents.js';
-import { formatError } from '../lib/errors.js';
+import { handleCommandError } from '../lib/errors.js';
 import { listSkills } from '../core/skill-manager.js';
 
 export function cleanCommand(opts: {
@@ -154,8 +154,7 @@ export function cleanCommand(opts: {
       console.log(chalk.gray('无需清理'));
     }
   } catch (e) {
-    console.error(chalk.red(`\n✗ ${formatError(e)}`));
-    process.exit(1);
+    handleCommandError(e);
   }
 }
 

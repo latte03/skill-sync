@@ -18,6 +18,7 @@ import { createContext } from '../core/context.js';
 import { installGitHubSkill, installLocalSkill } from '../core/installer.js';
 import { parseSource, isLocalSource } from '../lib/source.js';
 import { getAgentDisplayName } from '../lib/agents.js';
+import { formatError, getExitCode } from '../lib/errors.js';
 import type { InstallOpts, UserDeployMode } from '../lib/types.js';
 
 export async function installCommand(source: string, opts: InstallOpts & { deployType?: UserDeployMode }): Promise<void> {
@@ -80,7 +81,7 @@ export async function installCommand(source: string, opts: InstallOpts & { deplo
     console.log(chalk.gray('  skill-sync deploy <name>      # 分发到其他 Agent'));
     console.log(chalk.gray('  skill-sync status             # 查看状态'));
   } catch (e) {
-    spinner.fail(chalk.red(`✗ 安装失败: ${(e as Error).message}`));
-    process.exit(1);
+    spinner.fail(chalk.red(`✗ 安装失败: ${formatError(e)}`));
+    process.exit(getExitCode(e));
   }
 }

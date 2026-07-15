@@ -10,7 +10,7 @@
 import chalk from 'chalk';
 import { createContext } from '../core/context.js';
 import { checkForUpdate, checkAllUpdates } from '../core/version-manager.js';
-import { getExitCode, formatError } from '../lib/errors.js';
+import { handleCommandError } from '../lib/errors.js';
 
 export async function checkCommand(name: string | undefined): Promise<void> {
   const ctx = createContext();
@@ -52,7 +52,6 @@ export async function checkCommand(name: string | undefined): Promise<void> {
       }
     }
   } catch (e) {
-    console.error(chalk.red(`\n✗ ${formatError(e)}`));
-    process.exit(getExitCode(e));
+    handleCommandError(e);
   }
 }

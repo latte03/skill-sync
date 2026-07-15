@@ -93,11 +93,15 @@ export function tempPath(): string {
 /**
  * 获取 skill 的中央仓库路径
  *
- * @param namespace 命名空间（如 anthropics）
+ * @param namespace 命名空间（如 anthropics），空字符串表示本地导入无命名空间
  * @param skillName skill 名称（如 pdf-processing）
- * @returns 完整路径，如 ~/.skill-sync/skills/anthropics/pdf-processing/
+ * @returns 完整路径，如 ~/.skill-sync/skills/anthropics/pdf-processing/ 或 ~/.skill-sync/skills/pdf-processing/
  */
 export function skillRepoPath(namespace: string, skillName: string): string {
+  // 本地导入无命名空间时，直接放在 skills/ 下
+  if (!namespace || namespace === 'local') {
+    return homePath('skills', skillName);
+  }
   return homePath('skills', namespace, skillName);
 }
 

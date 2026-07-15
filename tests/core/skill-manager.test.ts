@@ -169,8 +169,8 @@ describe('skill-manager', () => {
       // 验证 lock 存在
       expect(hasLockEntry('local/test-skill')).toBe(true);
 
-      // 验证文件已复制
-      const repoPath = path.join(env.homeDir, 'skills', 'local', 'test-skill');
+      // 验证文件已复制（local 命名空间不作为目录层级）
+      const repoPath = path.join(env.homeDir, 'skills', 'test-skill');
       expect(fs.existsSync(path.join(repoPath, 'SKILL.md'))).toBe(true);
     });
 
@@ -327,8 +327,8 @@ describe('skill-manager', () => {
       const skillPath = path.join(env.agentsDir, '.claude', 'skills', 'test-skill');
       expect(fs.existsSync(skillPath)).toBe(false);
 
-      // 中央仓库 skill 目录删除
-      const repoPath = path.join(env.homeDir, 'skills', 'local', 'test-skill');
+      // 中央仓库 skill 目录删除（local 命名空间不作为目录层级）
+      const repoPath = path.join(env.homeDir, 'skills', 'test-skill');
       expect(fs.existsSync(repoPath)).toBe(false);
     });
 

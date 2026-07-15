@@ -12,7 +12,7 @@
 import chalk from 'chalk';
 import { createContext } from '../core/context.js';
 import { pushSync, pullSync, getSyncStatus, isGitInitialized } from '../core/sync-manager.js';
-import { formatError, getExitCode } from '../lib/errors.js';
+import { handleCommandError } from '../lib/errors.js';
 import type { ConflictStrategy } from '../lib/types.js';
 
 export async function syncCommand(action: string, opts: {
@@ -105,7 +105,6 @@ export async function syncCommand(action: string, opts: {
         process.exit(2);
     }
   } catch (e) {
-    console.error(chalk.red(`\n✗ ${formatError(e)}`));
-    process.exit(getExitCode(e));
+    handleCommandError(e);
   }
 }

@@ -10,7 +10,7 @@
 import { SKILLS_SH_API_BASE } from './constants.js';
 import { readLock } from './lock.js';
 import { readManifest } from './manifest.js';
-import { getProxyUrl } from './github.js';
+import { getProxyUrl } from './git-api.js';
 import type { SearchResult } from './types.js';
 
 // ==================== 本地搜索 ====================

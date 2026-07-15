@@ -9,23 +9,25 @@ export default defineConfig({
     }),
     presetTypography(),
   ],
-  // 自定义快捷类 — macOS Tahoe 风格
+  // 自定义快捷类 — devtool 风格：单 accent，扁平表面，无双屏 mesh 渐变
   shortcuts: {
-    'glass-card': 'bg-white/60 backdrop-blur-xl saturate-150 border border-white/60 rounded-2xl shadow-sm',
-    'glass-card-hover': 'hover:shadow-md hover:-translate-y-0.5 transition-all duration-150',
-    'section-title': 'text-base font-semibold text-[#1d1d1f] tracking-tight',
-    'section-desc': 'text-sm text-[#86868b]',
+    'surface-card': 'bg-[var(--surface)] border border-[var(--border)] rounded-[10px] shadow-[var(--shadow-sm)]',
+    'surface-card-hover':
+      'hover:shadow-[var(--shadow-md)] hover:border-[var(--border-strong)] hover:-translate-y-0.5 transition-all duration-150',
+    'section-title': 'text-base font-semibold text-[var(--text)] tracking-tight',
+    'section-desc': 'text-sm text-[var(--text-2)]',
+    'page-title-row':
+      'flex items-center justify-between mb-[22px]',
+    'page-title': 'm-0 text-xl font-bold text-[var(--text)] tracking-[-0.015em]',
   },
   theme: {
     colors: {
-      // Apple System Colors
-      'apple-blue': '#007AFF',
-      'apple-green': '#34C759',
-      'apple-orange': '#FF9500',
-      'apple-red': '#FF3B30',
-      'apple-purple': '#AF52DE',
-      'apple-gray': '#86868b',
-      'apple-dark': '#1d1d1f',
+      // Single accent, locked across the whole app
+      accent: 'var(--accent)',
+      // Semantic only — used for real state, never as decorative shower
+      'state-success': 'var(--success)',
+      'state-warning': 'var(--warning)',
+      'state-danger': 'var(--danger)',
     },
   },
 });

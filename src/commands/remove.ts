@@ -17,6 +17,7 @@ import chalk from 'chalk';
 import { createContext } from '../core/context.js';
 import { removeSkill, getSkillDetail } from '../core/skill-manager.js';
 import { getAgentDisplayName } from '../lib/agents.js';
+import { handleCommandError } from '../lib/errors.js';
 import type { RemoveScope } from '../lib/types.js';
 
 export function removeCommand(name: string, opts: {
@@ -72,7 +73,6 @@ export function removeCommand(name: string, opts: {
       console.log(chalk.gray('  Agent 下的分发已变为孤儿副本'));
     }
   } catch (e) {
-    console.error(chalk.red(`\n✗ 删除失败: ${(e as Error).message}`));
-    process.exit(1);
+    handleCommandError(e);
   }
 }

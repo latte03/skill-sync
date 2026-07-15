@@ -23,7 +23,8 @@ import { parseFrontmatter, extractVersion } from '../lib/frontmatter.js';
 import { sanitizeMetadata, sanitizeName } from '../lib/sanitize.js';
 import { getAgentSkillDir, getAgents } from '../lib/agents.js';
 import { skillRepoPath, skillMdPath, backupDirPath } from '../lib/paths.js';
-import { LOCKFILE_VERSION, CLI_VERSION, BACKUP_DIR } from '../lib/constants.js';
+import { LOCKFILE_VERSION, BACKUP_DIR } from '../lib/constants.js';
+import { copyDirRecursive } from '../lib/fs-utils.js';
 import type {
   SkillSyncContext,
 } from './context.js';
@@ -109,28 +110,6 @@ export function removeLink(dest: string): void {
   }
 }
 
-/**
- * 递归复制目录
- *
- * @param exclude 排除的目录/文件名列表
- */
-function copyDirRecursive(src: string, dest: string, exclude: string[] = []): void {
-  if (!fs.existsSync(dest)) {
-    fs.mkdirSync(dest, { recursive: true });
-  }
-  const entries = fs.readdirSync(src, { withFileTypes: true });
-  for (const entry of entries) {
-    if (exclude.includes(entry.name)) continue;
-    const srcPath = path.join(src, entry.name);
-    const destPath = path.join(dest, entry.name);
-    if (entry.isDirectory()) {
-      copyDirRecursive(srcPath, destPath, exclude);
-    } else {
-      fs.copyFileSync(srcPath, destPath);
-    }
-  }
-}
-
 // ==================== 哈希计算 ====================
 
 /**
@@ -161,6 +140,35 @@ export function computeSourceHash(dir: string): string {
   return hash.digest('hex');
 }
 
+// ==================== Manifest 路径解析 ====================
+
+/**
+ * 尝试读取 manifest（先尝试无命名空间，再尝试 namespace/skillName 格式）
+ *
+ * @returns manifest（可能为 null）、成功读取时使用的 namespace 和 skillName
+ */
+function tryReadManifest(name: string): { manifest: Manifest | null; namespace: string; skillName: string } {
+  // 1. 先尝试作为无命名空间的 skill（本地导入，完整路径作为 name）
+  try {
+    const manifest = readManifest('', name);
+    return { manifest, namespace: '', skillName: name };
+  } catch {
+    // 2. 尝试解析为 namespace/skillName 格式（GitHub 导入）
+    const firstSlash = name.indexOf('/');
+    if (firstSlash !== -1) {
+      const ns = name.slice(0, firstSlash);
+      const sn = name.slice(firstSlash + 1);
+      try {
+        const manifest = readManifest(ns, sn);
+        return { manifest, namespace: ns, skillName: sn };
+      } catch {
+        // manifest 不存在（损坏状态）
+      }
+    }
+  }
+  return { manifest: null, namespace: '', skillName: name };
+}
+
 // ==================== Skill 查询 ====================
 
 /**
@@ -171,15 +179,12 @@ export function listSkills(ctx: SkillSyncContext): SkillInfo[] {
   const skills: SkillInfo[] = [];
 
   for (const [fullName, entry] of Object.entries(lock.skills)) {
-    const [namespace, skillName] = fullName.split('/');
-    if (!namespace || !skillName) continue;
+    const { manifest } = tryReadManifest(fullName);
 
-    let manifest: Manifest | null = null;
-    try {
-      manifest = readManifest(namespace, skillName);
-    } catch {
-      // manifest 可能不存在（损坏状态）
-    }
+    // 从 manifest 获取准确的 namespace 和 skillName
+    // 如果 manifest 中 namespace 为空，则整个 name 都是 skillName（本地导入的嵌套路径）
+    const namespace = manifest?.namespace ?? '';
+    const skillName = manifest?.name ?? fullName;
 
     skills.push({
       name: fullName,
@@ -204,15 +209,12 @@ export function getSkillDetail(ctx: SkillSyncContext, name: string): SkillInfo |
   const entry = getLockEntry(name);
   if (!entry) return null;
 
-  const [namespace, skillName] = name.split('/');
-  if (!namespace || !skillName) return null;
+  const { manifest } = tryReadManifest(name);
 
-  let manifest: Manifest | null = null;
-  try {
-    manifest = readManifest(namespace, skillName);
-  } catch {
-    // ignore
-  }
+  // 从 manifest 获取准确的 namespace 和 skillName
+  // 如果 manifest 中 namespace 为空，则整个 name 都是 skillName（本地导入的嵌套路径）
+  const namespace = manifest?.namespace ?? '';
+  const skillName = manifest?.name ?? name;
 
   return {
     name,
@@ -243,13 +245,17 @@ export function deploySkill(
     throw new Error(`Skill 未找到: ${name}`);
   }
 
-  const [namespace, skillName] = name.split('/');
-  if (!namespace || !skillName) {
-    throw new Error(`无效的 skill 名称: ${name}`);
+  // 读取 manifest 获取准确的 namespace 和 skillName
+  const resolved = tryReadManifest(name);
+  if (!resolved.manifest) {
+    throw new Error(`无法读取 skill 的 manifest: ${name}`);
   }
-
-  const manifest = readManifest(namespace, skillName);
-  const repoPath = skillRepoPath(namespace, skillName);
+  const manifest = resolved.manifest;
+  const namespace = resolved.namespace;
+  const repoPath = skillRepoPath(namespace, resolved.skillName);
+  // 从 manifest 获取准确的 skillName（包含完整路径）
+  const skillName = manifest.name;
+  
   const agentSkillDir = getAgentSkillDir(agentName);
   const destPath = path.join(agentSkillDir, skillName);
 
@@ -336,7 +342,11 @@ export function undeploySkill(
   const agentSkillDir = getAgentSkillDir(agentName);
   const destPath = path.join(agentSkillDir, skillName);
 
-  if (!fs.existsSync(destPath) && !fs.lstatSync(destPath).isSymbolicLink()) {
+  // existsSync 会跟随符号链接，断裂符号链接返回 false；
+  // lstatSync 不跟随链接，对断裂符号链接也能成功，仅对真正不存在的路径抛异常
+  try {
+    fs.lstatSync(destPath);
+  } catch {
     ctx.logger.debug(`  ${agentName}: 目标不存在，跳过`);
     return;
   }
@@ -374,15 +384,21 @@ export function importSkill(
   namespace: string,
   opts?: { replaceWithLink?: boolean; mode?: UserDeployMode },
 ): ImportResult {
-  const skillName = sanitizeName(scanned.name);
+  // 优先使用 relativePath 保持目录结构，如 write-a-skill/engineering/tdd
+  const skillName = scanned.relativePath
+    ? sanitizeName(scanned.relativePath)
+    : sanitizeName(scanned.name);
   const repoPath = skillRepoPath(namespace, skillName);
 
   ctx.logger.debug(`  导入 ${skillName} → ${repoPath}`);
 
+  // lock 中的 fullName：有命名空间时带前缀，无命名空间时直接用 skillName
+  const fullName = namespace ? `${namespace}/${skillName}` : skillName;
+
   if (ctx.dryRun) {
-    ctx.logger.info(`[dry-run] 将导入 ${scanned.name} → ${namespace}/${skillName}`);
+    ctx.logger.info(`[dry-run] 将导入 ${scanned.name} → ${fullName}`);
     return {
-      name: `${namespace}/${skillName}`,
+      name: fullName,
       namespace,
       version: '0.0.0',
       deployed: [],
@@ -411,7 +427,6 @@ export function importSkill(
   writeManifest(namespace, skillName, manifest);
 
   // 4. 更新 skills-lock.json
-  const fullName = `${namespace}/${skillName}`;
   const lockEntry: LockEntry = {
     source: {
       type: 'local',
@@ -565,7 +580,12 @@ export function createBackup(
  * 列出所有 skill 的备份
  */
 export function listBackups(name: string): Array<{ version: string; timestamp: string; dir: string }> {
-  const [namespace, skillName] = name.split('/');
+  const { manifest } = tryReadManifest(name);
+
+  // 从 manifest 获取准确的 namespace 和 skillName
+  const namespace = manifest?.namespace ?? '';
+  const skillName = manifest?.name ?? name;
+  
   const backupDir = backupDirPath(namespace, skillName);
 
   if (!fs.existsSync(backupDir)) return [];

@@ -8,7 +8,7 @@
 
 import { Command } from 'commander';
 import chalk from 'chalk';
-import { CLI_VERSION } from '../lib/constants.js';
+import { getCliVersion } from '../lib/constants.js';
 import { initCommand } from '../commands/init.js';
 import { listCommand } from '../commands/list.js';
 import { statusCommand } from '../commands/status.js';
@@ -33,7 +33,7 @@ const program = new Command();
 program
   .name('skill-sync')
   .description('跨端跨 Agent 的 AI Skill 统一管理工具')
-  .version(CLI_VERSION, '-v, --version');
+  .version(getCliVersion(), '-v, --version');
 
 // ─── init ────────────────────────────────────────
 program

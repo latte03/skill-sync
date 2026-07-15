@@ -73,14 +73,16 @@ describe('discoverLocalSkills', () => {
   it('发现 skills/ 子目录中的 skill', () => {
     const skills = discoverLocalSkills(testDir);
     const names = skills.map(s => s.name);
-    expect(names).toContain('skill-a');
-    expect(names).toContain('skill-b');
+    // 使用 relativePath 作为 name，保持嵌套目录结构
+    expect(names).toContain('skills/skill-a');
+    expect(names).toContain('skills/skill-b');
   });
 
   it('发现嵌套目录中的 skill', () => {
     const skills = discoverLocalSkills(testDir);
     const names = skills.map(s => s.name);
-    expect(names).toContain('skill-c');
+    // 使用 relativePath 作为 name，保持完整嵌套路径
+    expect(names).toContain('nested/deep/skill-c');
   });
 
   it('解析 frontmatter 元数据', () => {

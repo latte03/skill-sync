@@ -33,7 +33,18 @@ export const GITHUB_RAW_BASE = 'https://raw.githubusercontent.com';
 export const SKILLS_SH_API_BASE = 'https://skills.sh/api';
 
 // CLI 版本（从 package.json 动态读取，避免手动维护）
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const pkgPath = path.join(__dirname, '..', '..', 'package.json');
-const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf-8'));
-export const CLI_VERSION = pkg.version as string;
+// 延迟读取，避免模块加载时的同步 I/O 副作用
+let _cliVersion: string | null = null;
+
+export function getCliVersion(): string {
+  if (_cliVersion !== null) return _cliVersion;
+  const __dirname = path.dirname(fileURLToPath(import.meta.url));
+  const pkgPath = path.join(__dirname, '..', '..', 'package.json');
+  try {
+    const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf-8'));
+    _cliVersion = pkg.version as string;
+  } catch {
+    _cliVersion = '0.0.0';
+  }
+  return _cliVersion;
+}

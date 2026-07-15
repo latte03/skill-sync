@@ -151,6 +151,97 @@ export interface SyncStatus {
 
 export type ConflictStrategy = 'ours' | 'theirs' | 'manual' | 'newer' | 'skip';
 
+// ==================== Git 信息查询（供 Web API 使用） ====================
+
+export interface GitCommitInfo {
+  hash: string;
+  date: string;
+  message: string;
+  author: string;
+  refs: string;
+}
+
+export interface GitRemoteInfo {
+  name: string;
+  fetchUrl: string;
+  pushUrl: string;
+}
+
+export interface GitBranchInfo {
+  current: string | null;
+  tracking: string | null;
+}
+
+export type GitPlatform = 'github' | 'gitee';
+
+export interface GitPlatformInfo {
+  id: GitPlatform;
+  name: string;
+  icon: string;
+  baseUrl: string;
+  enabled: boolean;
+  configured: boolean;
+  username?: string;
+  repo?: string;
+  branch?: string;
+}
+
+// ==================== 网络代理 ====================
+
+export interface ProxyConfig {
+  enabled: boolean;
+  url?: string;
+}
+
+// ==================== API 响应类型（前后端共享） ====================
+
+/** 变更文件信息 */
+export interface ChangedFile {
+  path: string;
+  status: string;
+}
+
+/** 同步状态详情（SyncStatus + Git 仓库信息），/api/sync/status 响应 */
+export interface SyncStatusInfo extends SyncStatus {
+  remotes: GitRemoteInfo[];
+  branch: string | null;
+  tracking: string | null;
+  changedFiles: ChangedFile[];
+}
+
+/** 冲突信息，/api/conflicts 响应 */
+export interface ConflictInfo {
+  skillName: string;
+  agent: string;
+  destPath: string;
+  type: 'managed-mismatch' | 'unmanaged' | 'broken-symlink';
+  detail: string;
+}
+
+/** Agent 信息，/api/agents 响应 */
+export interface AgentInfo {
+  name: string;
+  displayName: string;
+  skillsDir: string;
+  installed: boolean;
+}
+
+/** 全局状态信息，/api/status 响应 */
+export interface StatusInfo {
+  homeDir: string;
+  skillCount: number;
+  managedCount: number;
+  unmanagedCount: number;
+  agents: AgentStatus[];
+  installedAgents: string[];
+}
+
+/** AI 提供商信息（含运行时状态），/api/ai/providers 响应 */
+export interface AIProviderInfo extends AIProviderConfig {
+  hasKey: boolean;
+  isActive: boolean;
+}
+
 // ==================== 状态 ====================
 
 export interface StatusReport {
@@ -223,6 +314,14 @@ export interface AIConfig {
 
 // ==================== 配置 ====================
 
+export interface GitPlatformConfig {
+  enabled: boolean;
+  repo?: string;
+  branch?: string;
+  token?: string;
+  username?: string;
+}
+
 export interface Config {
   defaultAgent?: string;
   distributionMode?: UserDeployMode;
@@ -232,13 +331,10 @@ export interface Config {
     maxBackups?: number;
   };
   sync?: {
-    github?: {
-      repo?: string;
-      branch?: string;
-      token?: string;
-      autoCommit?: boolean;
-      commitMessagePrefix?: string;
-    };
+    github?: GitPlatformConfig;
+    gitee?: GitPlatformConfig;
+    autoCommit?: boolean;
+    commitMessagePrefix?: string;
   };
   conflict?: {
     defaultStrategy?: ConflictStrategy;
@@ -251,7 +347,10 @@ export interface Config {
     allowScripts?: 'none' | 'prompt' | 'always';
   };
   network?: {
-    proxy?: string;
+    proxy?: {
+      enabled: boolean;
+      url?: string;
+    };
     timeout?: number;
     retryCount?: number;
   };
@@ -340,6 +439,8 @@ export interface ScannedSkill {
   isSymlink: boolean;
   /** symlink 指向的路径 */
   linkTarget?: string;
+  /** 相对路径（用于保持目录结构，如 write-a-skill/engineering/tdd） */
+  relativePath?: string;
 }
 
 // ==================== Agent 配置 ====================
@@ -401,6 +502,8 @@ export interface DiscoveredSkill {
   metadata?: Record<string, unknown>;
   /** SKILL.md 正文内容 */
   rawContent?: string;
+  /** 相对路径（用于保持目录结构） */
+  relativePath?: string;
 }
 
 // ==================== 依赖声明 ====================

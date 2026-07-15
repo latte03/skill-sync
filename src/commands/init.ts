@@ -19,7 +19,7 @@ import chalk from 'chalk';
 import { getHomeDir, configPath, secretsPath, lockPath, skillsDirPath, cachePath, tempPath } from '../lib/paths.js';
 import { writeConfig, writeSecrets, getDefaultConfig } from '../config.js';
 import { readLock, writeLock } from '../lib/lock.js';
-import { LOCKFILE_VERSION, CLI_VERSION } from '../lib/constants.js';
+import { LOCKFILE_VERSION, getCliVersion } from '../lib/constants.js';
 import { detectInstalledAgents, getAgents, getAgentDisplayName } from '../lib/agents.js';
 import { scanAllAgents, filterUnmanaged, groupBySkillName } from '../core/scanner.js';
 import { importSkill } from '../core/skill-manager.js';
@@ -100,7 +100,7 @@ export async function initCommand(opts: InitOpts): Promise<void> {
   const lockData: LockFile = {
     lockfileVersion: LOCKFILE_VERSION,
     generatedAt: new Date().toISOString(),
-    generator: `skill-sync v${CLI_VERSION}`,
+    generator: `skill-sync v${getCliVersion()}`,
     skills: {},
   };
   writeLock(lockData);

@@ -104,11 +104,19 @@ describe('HTTP API', () => {
     expect(data).toHaveProperty('config');
   });
 
-  it('GET /api/skills/:name 不存在的 skill 返回 404', async () => {
-    const res = await app.request('/api/skills/nonexistent/test');
+  it('GET /api/skill/detail?name=... 不存在的 skill 返回 404', async () => {
+    const res = await app.request('/api/skill/detail?name=nonexistent/test');
     expect(res.status).toBe(404);
 
     const data = await res.json();
     expect(data.error).toContain('未找到');
+  });
+
+  it('GET /api/skill/detail 缺少 name 参数返回 400', async () => {
+    const res = await app.request('/api/skill/detail');
+    expect(res.status).toBe(400);
+
+    const data = await res.json();
+    expect(data.error).toContain('name');
   });
 });

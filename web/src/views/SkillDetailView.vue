@@ -3,8 +3,8 @@
     <n-spin :show="loading">
       <div v-if="detail" class="detail-content">
         <!-- 返回按钮 -->
-        <n-button size="small" quaternary @click="$emit('back')">
-          ← 返回列表
+        <n-button size="small" quaternary @click="goBack">
+          返回列表
         </n-button>
 
         <!-- 标题区 -->
@@ -31,7 +31,7 @@
                 v-else
                 :modelValue="detail.skillMd"
                 :theme="'light'"
-                class="md-preview"
+                class="md-preview p-4"
               />
             </div>
           </n-tab-pane>
@@ -45,7 +45,7 @@
               <n-descriptions-item label="分发模式">
                 {{ detail.skill.deployMode }}
               </n-descriptions-item>
-              <n-descriptions-item label="命名空间">
+              <n-descriptions-item v-if="detail.skill.namespace" label="命名空间">
                 {{ detail.skill.namespace }}
               </n-descriptions-item>
             </n-descriptions>
@@ -197,16 +197,28 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, watch } from 'vue';
+import { ref, computed, onMounted, watch } from 'vue';
+import { useRoute, useRouter } from 'vue-router';
 import { useMessage } from 'naive-ui';
 import { MdPreview } from 'md-editor-v3';
 import 'md-editor-v3/lib/preview.css';
 import { api, type SkillDetail, type AgentInfo, type UpdateCheckResult } from '../api';
 
-const props = defineProps<{ skillName: string }>();
-const emit = defineEmits<{ back: []; removed: [] }>();
-
+const route = useRoute();
+const router = useRouter();
 const message = useMessage();
+
+const emit = defineEmits<{
+  (e: 'back'): void;
+  (e: 'removed'): void;
+}>();
+
+const skillName = computed(() => route.params.name as string);
+
+function goBack() {
+  router.push({ name: 'skills' });
+}
+
 const loading = ref(false);
 const detail = ref<SkillDetail | null>(null);
 const agents = ref<AgentInfo[]>([]);
@@ -225,7 +237,7 @@ async function loadDetail() {
   updateResult.value = null;
   try {
     const [detailRes, agentsRes] = await Promise.all([
-      api.getSkillDetail(props.skillName),
+      api.getSkillDetail(skillName.value),
       api.getAgents(),
     ]);
     detail.value = detailRes;
@@ -244,7 +256,7 @@ async function loadDetail() {
 async function doDeploy() {
   deployLoading.value = true;
   try {
-    await api.deploySkill(props.skillName, selectedAgents.value);
+    await api.deploySkill(skillName.value, selectedAgents.value);
     message.success(`已分发到 ${selectedAgents.value.join(', ')}`);
     selectedAgents.value = [];
     await loadDetail();
@@ -258,7 +270,7 @@ async function doDeploy() {
 async function doUndeploy() {
   undeployLoading.value = true;
   try {
-    await api.undeploySkill(props.skillName, selectedAgents.value);
+    await api.undeploySkill(skillName.value, selectedAgents.value);
     message.success(`已取消分发 ${selectedAgents.value.join(', ')}`);
     selectedAgents.value = [];
     await loadDetail();
@@ -271,7 +283,7 @@ async function doUndeploy() {
 
 async function undeploySingle(agent: string) {
   try {
-    await api.undeploySkill(props.skillName, [agent]);
+    await api.undeploySkill(skillName.value, [agent]);
     message.success(`已取消分发 ${agent}`);
     await loadDetail();
   } catch (e) {
@@ -283,7 +295,7 @@ async function addTag() {
   const tag = newTag.value.trim();
   if (!tag) return;
   try {
-    const res = await api.manageTag(props.skillName, 'add', tag);
+    const res = await api.manageTag(skillName.value, 'add', tag);
     if (detail.value) {
       detail.value.skill.tags = res.tags;
     }
@@ -296,7 +308,7 @@ async function addTag() {
 
 async function removeTag(tag: string) {
   try {
-    const res = await api.manageTag(props.skillName, 'remove', tag);
+    const res = await api.manageTag(skillName.value, 'remove', tag);
     if (detail.value) {
       detail.value.skill.tags = res.tags;
     }
@@ -309,7 +321,7 @@ async function removeTag(tag: string) {
 async function checkUpdate() {
   updateLoading.value = true;
   try {
-    const res = await api.checkUpdates(props.skillName);
+    const res = await api.checkUpdates(skillName.value);
     updateResult.value = res.results[0] ?? null;
   } catch (e) {
     message.error(`检查更新失败: ${(e as Error).message}`);
@@ -320,15 +332,15 @@ async function checkUpdate() {
 
 async function removeSkill(scope: 'central' | 'all') {
   try {
-    await api.removeSkill(props.skillName, scope);
-    message.success(`已删除 ${props.skillName}`);
+    await api.removeSkill(skillName.value, scope);
+    message.success(`已删除 ${skillName.value}`);
     emit('removed');
   } catch (e) {
     message.error(`删除失败: ${(e as Error).message}`);
   }
 }
 
-watch(() => props.skillName, () => loadDetail());
+watch(() => skillName.value, () => loadDetail());
 onMounted(() => loadDetail());
 </script>
 
@@ -346,20 +358,21 @@ onMounted(() => loadDetail());
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 12px;
 }
 
 .skill-title {
   margin: 0;
   font-size: 22px;
   font-weight: 700;
-  color: #1d1d1f;
+  color: var(--text);
   letter-spacing: -0.02em;
 }
 
 .skill-desc {
   margin: 8px 0 0;
   font-size: 14px;
-  color: #6e6e73;
+  color: var(--text-2);
 }
 
 .md-preview-container {
@@ -367,8 +380,8 @@ onMounted(() => loadDetail());
 }
 
 .md-preview {
-  --md-color: #1d1d1f;
-  border-radius: 12px;
+  --md-color: var(--text);
+  border-radius: 8px;
 }
 
 .backup-item {
@@ -379,13 +392,13 @@ onMounted(() => loadDetail());
 }
 
 .backup-time {
-  color: #86868b;
+  color: var(--text-3);
 }
 
 .backup-dir {
   font-family: 'SF Mono', Monaco, monospace;
   font-size: 12px;
-  color: #007aff;
+  color: var(--accent);
 }
 
 .deploy-section,

@@ -68,7 +68,7 @@ describe('init command (integration)', () => {
     expect(lock.skills['local/my-skill']!.version).toBe('1.0.0');
 
     // 验证中央仓库有文件
-    const repoPath = path.join(env.homeDir, 'skills', 'local', 'my-skill');
+    const repoPath = path.join(env.homeDir, 'skills',  'my-skill');
     expect(fs.existsSync(path.join(repoPath, 'SKILL.md'))).toBe(true);
   });
 

@@ -1,3 +1,14 @@
+---
+AIGC:
+  ContentProducer: '001191110102MAD55U9H0F10002'
+  ContentPropagator: '001191110102MAD55U9H0F10002'
+  Label: '1'
+  ProduceID: '914586d0-0e0b-4a0b-8a1d-0e9198e3912f'
+  PropagateID: '914586d0-0e0b-4a0b-8a1d-0e9198e3912f'
+  ReservedCode1: 'b0013322-3cc1-4dc9-941e-91f159c18f61'
+  ReservedCode2: 'b0013322-3cc1-4dc9-941e-91f159c18f61'
+---
+
 # AGENT.md — SkillSync 开发指南
 
 > 本文件供 AI Agent（如 CatPaw、Claude Code 等）在参与 SkillSync 开发时遵循。
@@ -43,13 +54,16 @@ SkillSync 是一款跨端跨 Agent 的 AI Skill 管理工具。CLI 优先，Phas
 - 锁文件：`skills-lock.json`（JSON 格式，保持不变）
 - 标签定义：`tags.yaml`（YAML 格式）
 
-### 5. 命名空间
+### 5. 命名空间与来源标识
 
-- 所有 skill 使用 `<namespace>/<skill-name>` 格式
-- 目录结构：`skills/<namespace>/<skill-name>/`
-- GitHub 安装：namespace = GitHub owner
-- 本地导入：namespace 默认 `local`，可指定
-- init 扫描导入：namespace = 原始 Agent 目录名
+- **本地导入**：无命名空间，目录结构 `skills/<skill-name>/`，通过 `source.type: 'local'` 标识来源
+- **GitHub 安装**：使用 `<namespace>/<skill-name>` 格式，目录结构 `skills/<namespace>/<skill-name>/`，通过 `source.type: 'github'` 标识来源
+- namespace 为 GitHub owner（如 `anthropics`），本地导入时 namespace 为空字符串
+- 来源标识统一使用 manifest 中的 `source` 属性：
+  - `source.type`: `'local'` | `'github'`
+  - `source.installedVia`: `'cli'` | `'init-scan'`
+  - `source.repo`: GitHub 仓库（仅 GitHub 来源）
+  - `source.path`: 子路径（仅 GitHub 来源）
 
 ### 6. 分发模式与平台适配
 

@@ -19,6 +19,7 @@
     "dev": "tsc --watch",
     "dev:web": "vite --config web/vite.config.ts",
     "dev:all": "concurrently \"pnpm dev\" \"pnpm dev:web\" \"pnpm start -- ui --no-open\"",
+    "dev:mock": "NODE_ENV=development node dist/bin/skill-sync.js",
     "start": "node dist/bin/skill-sync.js",
     "test": "vitest run",
     "test:watch": "vitest",
@@ -73,6 +74,8 @@
     "unocss": "^66.7.5",
     "vite": "^8.1.4",
     "vitest": "^2.1.8",
-    "vue": "^3.5.39"
+    "vue": "^3.5.39",
+    "vue-router": "^4.6.4",
+    "vue-tsc": "^3.3.7"
   }
 }

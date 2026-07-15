@@ -22,6 +22,7 @@ import { createBackup, listBackups } from './skill-manager.js';
 import { installGitHubSkill } from './installer.js';
 import { parseSource } from '../lib/source.js';
 import { extractVersion } from '../lib/frontmatter.js';
+import { copyDirRecursive } from '../lib/fs-utils.js';
 import type { SkillSyncContext } from './context.js';
 import type { UpdateCheckResult, UpdateResult, BackupInfo, LockEntry } from '../lib/types.js';
 
@@ -349,7 +350,7 @@ export function restoreFromBackup(
   }
 
   // 从备份复制
-  copyDirContents(target.backupDir, repoPath, ['.backup']);
+  copyDirRecursive(target.backupDir, repoPath, ['.backup']);
 
   // 读取恢复后的 manifest
   const manifest = readManifest(namespace, skillName);
@@ -372,24 +373,4 @@ export function restoreFromBackup(
   };
 }
 
-// ==================== 辅助函数 ====================
 
-/**
- * 递归复制目录内容
- */
-function copyDirContents(src: string, dest: string, exclude: string[] = []): void {
-  const entries = fs.readdirSync(src, { withFileTypes: true });
-  for (const entry of entries) {
-    if (exclude.includes(entry.name)) continue;
-
-    const srcPath = path.join(src, entry.name);
-    const destPath = path.join(dest, entry.name);
-
-    if (entry.isDirectory()) {
-      fs.mkdirSync(destPath, { recursive: true });
-      copyDirContents(srcPath, destPath, exclude);
-    } else {
-      fs.copyFileSync(srcPath, destPath);
-    }
-  }
-}

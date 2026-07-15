@@ -14,7 +14,7 @@
 
 import chalk from 'chalk';
 import { searchAll, searchLocal, searchRemote } from '../lib/search.js';
-import { formatError } from '../lib/errors.js';
+import { handleCommandError } from '../lib/errors.js';
 import type { SearchResult } from '../lib/types.js';
 
 export async function searchCommand(query: string, opts: {
@@ -45,8 +45,7 @@ export async function searchCommand(query: string, opts: {
       printRemoteResults(remote, query);
     }
   } catch (e) {
-    console.error(chalk.red(`\n✗ ${formatError(e)}`));
-    process.exit(1);
+    handleCommandError(e);
   }
 }
 

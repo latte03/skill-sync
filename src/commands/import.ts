@@ -42,7 +42,8 @@ export function importCommand(inputPath: string | undefined, opts: {
   }
 
   const ctx = createContext();
-  const namespace = opts.namespace || 'local';
+  // 本地导入：不指定命名空间，或显式指定为空字符串
+  const namespace = opts.namespace === 'local' ? '' : (opts.namespace || '');
 
   // 发现 skill
   const skills = discoverLocalSkills(resolved);
@@ -85,6 +86,7 @@ export function importCommand(inputPath: string | undefined, opts: {
       description: skill.description,
       agentName: '',
       isSymlink: false,
+      relativePath: skill.relativePath,
     };
 
     try {

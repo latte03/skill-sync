@@ -13,7 +13,7 @@
 import chalk from 'chalk';
 import { readConfig, writeConfig, getDefaultConfig } from '../config.js';
 import { configPath } from '../lib/paths.js';
-import { formatError } from '../lib/errors.js';
+import { handleCommandError } from '../lib/errors.js';
 import { stringify as stringifyYaml } from 'yaml';
 
 export function configCommand(action: string, key: string | undefined, value: string | undefined): void {
@@ -71,8 +71,7 @@ export function configCommand(action: string, key: string | undefined, value: st
         process.exit(2);
     }
   } catch (e) {
-    console.error(chalk.red(`\n✗ ${formatError(e)}`));
-    process.exit(1);
+    handleCommandError(e);
   }
 }
 

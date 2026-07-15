@@ -30,10 +30,15 @@ export function getDefaultConfig(): Config {
     },
     sync: {
       github: {
+        enabled: false,
         branch: 'main',
-        autoCommit: false,
-        commitMessagePrefix: 'skill-sync:',
       },
+      gitee: {
+        enabled: false,
+        branch: 'main',
+      },
+      autoCommit: false,
+      commitMessagePrefix: 'skill-sync:',
     },
     conflict: {
       defaultStrategy: 'manual',
@@ -42,6 +47,9 @@ export function getDefaultConfig(): Config {
       allowScripts: 'prompt',
     },
     network: {
+      proxy: {
+        enabled: false,
+      },
       timeout: DEFAULT_NETWORK_TIMEOUT,
       retryCount: DEFAULT_NETWORK_RETRY,
     },

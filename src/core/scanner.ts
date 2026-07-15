@@ -4,7 +4,7 @@
  * 参考 PRD §7.6 init 命令 — 初始化扫描 + TeleAgent scanner.ts
  *
  * 功能：
- * - 扫描指定 Agent 的 skill 目录
+ * - 扫描指定 Agent 的 skill 目录（支持深度嵌套）
  * - 识别 SKILL.md frontmatter
  * - 区分 managed（symlink 指向中央仓库）和 unmanaged（散落文件）
  * - 返回扫描结果供 init/import 命令使用
@@ -19,7 +19,93 @@ import type { ScannedSkill } from '../lib/types.js';
 import type { SkillSyncContext } from './context.js';
 
 /**
+ * 递归扫描目录下的所有 skill
+ * 只要目录中包含 SKILL.md 文件，就视为一个 skill
+ * 支持嵌套 skill 目录（如 write-a-skill/engineering/tdd）
+ */
+function scanSkillDirectory(
+  ctx: SkillSyncContext,
+  dir: string,
+  agentName: string,
+  baseDir: string,
+  depth: number = 0,
+  maxDepth: number = 5
+): ScannedSkill[] {
+  const results: ScannedSkill[] = [];
+
+  if (depth > maxDepth) {
+    ctx.logger.debug(`  达到最大扫描深度 ${maxDepth}，跳过: ${dir}`);
+    return results;
+  }
+
+  if (!fs.existsSync(dir)) {
+    return results;
+  }
+
+  const entries = fs.readdirSync(dir, { withFileTypes: true });
+
+  // 首先检查当前目录是否有 SKILL.md（根目录除外）
+  const skillMdFile = path.join(dir, 'SKILL.md');
+  const hasSkillMd = fs.existsSync(skillMdFile);
+
+  if (hasSkillMd && depth > 0) {
+    // 找到 skill，记录它
+    const dirName = path.basename(dir);
+    const relativePath = path.relative(baseDir, dir);
+
+    // 检测 symlink
+    const lstat = fs.lstatSync(dir);
+    const isSymlink = lstat.isSymbolicLink();
+    let linkTarget: string | undefined;
+    if (isSymlink) {
+      try {
+        linkTarget = fs.readlinkSync(dir);
+      } catch {
+        linkTarget = undefined;
+      }
+    }
+
+    // 尝试读取 SKILL.md 获取元数据
+    let name = dirName;
+    let description: string | undefined;
+
+    const raw = fs.readFileSync(skillMdFile, 'utf-8');
+    const { data } = parseFrontmatter(raw);
+    if (isValidSkillFrontmatter(data)) {
+      name = sanitizeMetadata(String(data.name));
+      description = sanitizeMetadata(String(data.description));
+    }
+
+    results.push({
+      name: sanitizeName(name),
+      dir,
+      skillMdPath: skillMdFile,
+      description,
+      agentName,
+      isSymlink,
+      linkTarget,
+      relativePath,
+    });
+
+    // 注意：即使当前目录是一个 skill，仍然继续递归扫描子目录
+    // 因为可能存在嵌套 skill 结构（如 write-a-skill/engineering/tdd）
+  }
+
+  // 递归扫描子目录
+  for (const entry of entries) {
+    if (!entry.isDirectory() && !entry.isSymbolicLink()) continue;
+
+    const subDir = path.join(dir, entry.name);
+    const subResults = scanSkillDirectory(ctx, subDir, agentName, baseDir, depth + 1, maxDepth);
+    results.push(...subResults);
+  }
+
+  return results;
+}
+
+/**
  * 扫描单个 Agent 的 skill 目录
+ * 支持深度嵌套目录结构，如 .claude/skills/write-a-skill
  */
 export function scanAgentSkills(ctx: SkillSyncContext, agentName: string): ScannedSkill[] {
   const skillDir = getAgentSkillDir(agentName);
@@ -30,52 +116,7 @@ export function scanAgentSkills(ctx: SkillSyncContext, agentName: string): Scann
     return [];
   }
 
-  const entries = fs.readdirSync(skillDir, { withFileTypes: true });
-  const results: ScannedSkill[] = [];
-
-  for (const entry of entries) {
-    // 同时处理目录和符号链接（symlink 指向目录也是 skill）
-    if (!entry.isDirectory() && !entry.isSymbolicLink()) continue;
-
-    const skillPath = path.join(skillDir, entry.name);
-    const skillMdFile = path.join(skillPath, 'SKILL.md');
-
-    // 检测 symlink
-    const lstat = fs.lstatSync(skillPath);
-    const isSymlink = lstat.isSymbolicLink();
-    let linkTarget: string | undefined;
-    if (isSymlink) {
-      try {
-        linkTarget = fs.readlinkSync(skillPath);
-      } catch {
-        // broken symlink
-        linkTarget = undefined;
-      }
-    }
-
-    // 尝试读取 SKILL.md
-    let name = entry.name;
-    let description: string | undefined;
-
-    if (fs.existsSync(skillMdFile)) {
-      const raw = fs.readFileSync(skillMdFile, 'utf-8');
-      const { data } = parseFrontmatter(raw);
-      if (isValidSkillFrontmatter(data)) {
-        name = sanitizeMetadata(String(data.name));
-        description = sanitizeMetadata(String(data.description));
-      }
-    }
-
-    results.push({
-      name: sanitizeName(name),
-      dir: skillPath,
-      skillMdPath: skillMdFile,
-      description,
-      agentName,
-      isSymlink,
-      linkTarget,
-    });
-  }
+  const results = scanSkillDirectory(ctx, skillDir, agentName, skillDir, 0);
 
   ctx.logger.debug(`  发现 ${results.length} 个 skill（managed: ${results.filter(r => r.isSymlink).length}, unmanaged: ${results.filter(r => !r.isSymlink).length}）`);
   return results;

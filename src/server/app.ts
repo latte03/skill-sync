@@ -138,11 +138,16 @@ app.get('/api/skills', (c) => {
 });
 
 // ─── Skill 详情 ───────────────────────────────────
-app.get('/api/skills/*', (c) => {
+// 使用 /api/skill/detail?name=xxx 查询参数方式，支持任意嵌套路径
+app.get('/api/skill/detail', (c) => {
   try {
     const ctx = createContext();
-    // 提取 skill name：去掉前缀 /api/skills/
-    const name = c.req.path.replace('/api/skills/', '');
+    const name = c.req.query('name') ?? '';
+
+    if (!name) {
+      return c.json({ error: '缺少查询参数 name' }, 400);
+    }
+
     const detail = getSkillDetail(ctx, name);
 
     if (!detail) {

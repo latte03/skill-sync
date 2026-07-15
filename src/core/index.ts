@@ -59,4 +59,4 @@ export {
   getChangedFiles,
   getGitDiff,
 } from './sync-manager.js';
-export type { GitCommitInfo, GitRemoteInfo, GitBranchInfo } from './sync-manager.js';
+export type { GitCommitInfo, GitRemoteInfo, GitBranchInfo } from '../lib/types.js';

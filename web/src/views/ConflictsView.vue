@@ -1,7 +1,7 @@
 <template>
   <div class="conflicts-page">
-    <div class="page-header">
-      <h3>冲突检测</h3>
+    <div class="page-title-row">
+      <h1 class="page-title">冲突检测</h1>
       <n-space>
         <n-tag v-if="conflicts.length > 0" type="error" size="small" round>
           {{ conflicts.length }} 个冲突
@@ -152,25 +152,6 @@ async function resolveUndeploy(conflict: ConflictInfo) {
   margin: 0 auto;
 }
 
-.conflicts-page .page-header {
-  margin-bottom: 20px;
-}
-
-.page-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 16px;
-}
-
-.page-header h3 {
-  margin: 0;
-  font-size: 17px;
-  font-weight: 700;
-  color: #1d1d1f;
-  letter-spacing: -0.01em;
-}
-
 .conflict-list {
   display: flex;
   flex-direction: column;
@@ -185,11 +166,12 @@ async function resolveUndeploy(conflict: ConflictInfo) {
 .conflict-skill {
   font-weight: 600;
   font-size: 14px;
+  color: var(--text);
 }
 
 .conflict-agent {
   font-size: 13px;
-  color: #86868b;
+  color: var(--text-3);
 }
 
 .conflict-body {
@@ -201,12 +183,13 @@ async function resolveUndeploy(conflict: ConflictInfo) {
 .conflict-detail {
   margin: 0;
   font-size: 13px;
+  color: var(--text-2);
 }
 
 .conflict-path {
   font-family: 'SF Mono', Monaco, monospace;
   font-size: 12px;
-  color: #007aff;
+  color: var(--accent);
   word-break: break-all;
 }
 

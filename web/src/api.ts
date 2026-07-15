@@ -1,8 +1,28 @@
 /**
  * API 客户端 — 与 Hono 后端通信
+ *
+ * skill 的唯一标识为 name，格式为 "skill-name"（本地）或 "namespace/skill-name"（GitHub），
+ * 始终通过 URLSearchParams 作为一个不透明字符串传给 query 参数 name。
+ * 不将斜杠拆成路径段，避免 %2F 在不同框架/代理下被歧义处理。
+ * 本地导入的 skill 无 namespace，namespace 字段为空字符串。
  */
 
 const API_BASE = '/api';
+
+/** 把多个 key/value 安全编码成 query string */
+function qs(params: Record<string, string | string[] | undefined>): string {
+  const search = new URLSearchParams();
+  for (const [k, v] of Object.entries(params)) {
+    if (v === undefined) continue;
+    if (Array.isArray(v)) {
+      if (v.length) search.set(k, v.join(','));
+    } else {
+      search.set(k, v);
+    }
+  }
+  const s = search.toString();
+  return s ? `?${s}` : '';
+}
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const response = await fetch(`${API_BASE}${path}`, {
@@ -18,117 +38,58 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
   return response.json() as Promise<T>;
 }
 
-// ─── 类型定义 ─────────────────────────────────────
+// ─── 共享类型（从后端 types.ts 导入并重导出） ─────────
 
-export interface SkillInfo {
-  name: string;
-  namespace: string;
-  skillName: string;
-  version: string;
-  description: string;
-  tags: string[];
-  deployMode: string;
-  agents: string[];
-  managed: boolean;
-}
+import type {
+  SkillInfo,
+  SearchResult,
+  UpdateCheckResult,
+  SyncResult,
+  SyncStatusInfo,
+  ConflictInfo,
+  AgentInfo,
+  StatusInfo,
+  AIProviderInfo,
+  GitPlatformInfo,
+  ProxyConfig,
+  GitCommitInfo,
+} from '../../src/lib/types.js';
 
+export type {
+  SkillInfo,
+  SearchResult,
+  UpdateCheckResult,
+  SyncResult,
+  SyncStatusInfo,
+  ConflictInfo,
+  AgentInfo,
+  StatusInfo,
+  AIProviderInfo,
+  GitPlatformInfo,
+  ProxyConfig,
+};
+
+// GitCommitInfo 重导出为 SyncCommit（前端历史命名）
+export type SyncCommit = GitCommitInfo;
+
+// ─── 前端专属类型 ─────────────────────────────────────
+
+/** /api/skill/detail 响应包装 */
 export interface SkillDetail {
   skill: SkillInfo;
   backups: Array<{ version: string; timestamp: string; dir: string }>;
   skillMd: string;
 }
 
-export interface SearchResult {
-  source: string;
-  skillId: string;
-  name: string;
-  description: string;
-  stars?: number;
-  installs?: number;
-  isLocal?: boolean;
-  localVersion?: string;
-}
-
-export interface StatusInfo {
-  homeDir: string;
-  skillCount: number;
-  managedCount: number;
-  unmanagedCount: number;
-  agents: Array<{ agent: string; managed: number; unmanaged: number; total: number }>;
-  installedAgents: string[];
-}
-
-export interface AgentInfo {
-  name: string;
-  displayName: string;
-  skillsDir: string;
-  installed: boolean;
-}
-
-export interface UpdateCheckResult {
-  name: string;
-  currentVersion: string;
-  remoteVersion: string | null;
-  hasUpdate: boolean;
-  isLocal: boolean;
-}
-
-export interface ConflictInfo {
-  skillName: string;
-  agent: string;
-  destPath: string;
-  type: 'managed-mismatch' | 'unmanaged' | 'broken-symlink';
-  detail: string;
-}
-
-// ─── Git 同步类型 ──────────────────────────────────
-
-export interface SyncStatusInfo {
-  isRepo: boolean;
-  hasRemote: boolean;
-  uncommittedChanges: number;
-  ahead: number;
-  behind: number;
-  remotes: Array<{ name: string; fetchUrl: string; pushUrl: string }>;
-  branch: string | null;
-  tracking: string | null;
-  changedFiles: Array<{ path: string; status: string }>;
-}
-
-export interface SyncCommit {
-  hash: string;
-  date: string;
-  message: string;
-  author: string;
-  refs: string;
-}
-
-export interface SyncResult {
-  success: boolean;
-  pushed: number;
-  pulled: number;
-  conflicts: string[];
-  error?: string;
-}
-
-// ─── AI 提供商类型 ──────────────────────────────────
-
-export interface AIProviderInfo {
-  id: string;
-  name: string;
-  baseUrl: string;
-  models: string[];
-  defaultModel: string;
-  iconColor?: string;
-  custom?: boolean;
-  hasKey: boolean;
-  isActive: boolean;
-}
-
 export interface AIProvidersResponse {
   providers: AIProviderInfo[];
   activeProvider: string | null;
   activeModel: string | null;
+}
+
+export interface GitPlatformsResponse {
+  platforms: GitPlatformInfo[];
+  active: 'github' | 'gitee' | null;
 }
 
 // ─── API 函数 ─────────────────────────────────────
@@ -140,12 +101,12 @@ export const api = {
     const query = new URLSearchParams();
     if (params?.agent) query.set('agent', params.agent);
     if (params?.tag) query.set('tag', params.tag);
-    const qs = query.toString();
-    return request<{ skills: SkillInfo[] }>(`/skills${qs ? '?' + qs : ''}`);
+    const q = query.toString();
+    return request<{ skills: SkillInfo[] }>(`/skills${q ? '?' + q : ''}`);
   },
 
   getSkillDetail: (name: string) =>
-    request<SkillDetail>(`/skills/${encodeURIComponent(name)}`),
+    request<SkillDetail>(`/skill/detail${qs({ name })}`),
 
   search: (query: string, scope?: 'all' | 'local' | 'remote', limit?: number) => {
     const params = new URLSearchParams({ q: query });
@@ -169,29 +130,23 @@ export const api = {
       body: JSON.stringify(data),
     }),
 
-  deploySkill: (name: string, agents?: string[]) => {
-    const qs = agents ? `?agents=${agents.join(',')}` : '';
-    return request<{ success: boolean }>(`/skills/${encodeURIComponent(name)}/deploy${qs}`, {
+  deploySkill: (name: string, agents?: string[]) =>
+    request<{ success: boolean }>(`/skill/deploy${qs({ name, agents })}`, {
       method: 'POST',
-    });
-  },
+    }),
 
-  undeploySkill: (name: string, agents?: string[]) => {
-    const qs = agents ? `?agents=${agents.join(',')}` : '';
-    return request<{ success: boolean }>(`/skills/${encodeURIComponent(name)}/undeploy${qs}`, {
+  undeploySkill: (name: string, agents?: string[]) =>
+    request<{ success: boolean }>(`/skill/undeploy${qs({ name, agents })}`, {
       method: 'POST',
-    });
-  },
+    }),
 
-  removeSkill: (name: string, scope?: 'central' | 'all') => {
-    const qs = scope ? `?scope=${scope}` : '';
-    return request<{ success: boolean }>(`/skills/${encodeURIComponent(name)}${qs}`, {
+  removeSkill: (name: string, scope?: 'central' | 'all') =>
+    request<{ success: boolean }>(`/skill${qs({ name, scope })}`, {
       method: 'DELETE',
-    });
-  },
+    }),
 
   manageTag: (name: string, action: 'add' | 'remove', tag: string) =>
-    request<{ success: boolean; tags: string[] }>(`/skills/${encodeURIComponent(name)}/tags`, {
+    request<{ success: boolean; tags: string[] }>(`/skill/tags${qs({ name })}`, {
       method: 'POST',
       body: JSON.stringify({ action, tag }),
     }),
@@ -265,5 +220,42 @@ export const api = {
   generateCommitMessage: () =>
     request<{ message: string; fileCount: number }>('/ai/generate-commit', {
       method: 'POST',
+    }),
+
+  // ─── Git 平台身份凭证 ───────────────────────────────
+
+  getGitPlatforms: () => request<GitPlatformsResponse>('/git/platforms'),
+
+  enableGitPlatform: (platform: string, enabled: boolean) =>
+    request<{ success: boolean }>(`/git/platforms/${platform}/enable`, {
+      method: 'POST',
+      body: JSON.stringify({ enabled }),
+    }),
+
+  setGitPlatformToken: (platform: string, token: string, username?: string) =>
+    request<{ success: boolean }>(`/git/platforms/${platform}/token`, {
+      method: 'POST',
+      body: JSON.stringify({ token, username }),
+    }),
+
+  removeGitPlatformToken: (platform: string) =>
+    request<{ success: boolean }>(`/git/platforms/${platform}/token`, {
+      method: 'DELETE',
+    }),
+
+  setGitPlatformRepo: (platform: string, repo?: string, branch?: string) =>
+    request<{ success: boolean }>(`/git/platforms/${platform}/repo`, {
+      method: 'POST',
+      body: JSON.stringify({ repo, branch }),
+    }),
+
+  // ─── 网络代理配置 ────────────────────────────────────
+
+  getProxyConfig: () => request<ProxyConfig>('/network/proxy'),
+
+  setProxyConfig: (enabled: boolean, url?: string) =>
+    request<{ success: boolean }>('/network/proxy', {
+      method: 'POST',
+      body: JSON.stringify({ enabled, url }),
     }),
 };

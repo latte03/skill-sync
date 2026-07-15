@@ -131,10 +131,21 @@ onMounted(() => {
   margin: 0 auto;
 }
 
+.status-page h3 {
+  margin: 0 0 10px;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.status-page .n-divider {
+  margin: 20px 0;
+}
+
 .path-text {
   font-family: 'SF Mono', Monaco, monospace;
   font-size: 13px;
-  color: #007aff;
+  color: var(--accent);
 }
 
 .update-list {
@@ -154,6 +165,6 @@ onMounted(() => {
 .update-name {
   min-width: 200px;
   font-weight: 500;
-  color: #1d1d1f;
+  color: var(--text);
 }
 </style>

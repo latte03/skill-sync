@@ -171,8 +171,8 @@ async function installFromSearch(item: SearchResult) {
 }
 
 .section-title {
-  font-size: 14px;
-  color: #6e6e73;
+  font-size: 13px;
+  color: var(--text-3);
   margin-bottom: 12px;
   font-weight: 600;
 }
@@ -196,19 +196,20 @@ async function installFromSearch(item: SearchResult) {
 .result-name {
   font-weight: 600;
   font-size: 14px;
+  color: var(--text);
 }
 
 .result-source {
   margin: 0;
   font-size: 12px;
-  color: #86868b;
+  color: var(--text-3);
   font-family: 'SF Mono', Monaco, monospace;
 }
 
 .result-desc {
   margin: 4px 0 8px;
   font-size: 13px;
-  color: #6e6e73;
+  color: var(--text-2);
 }
 
 .empty-state {

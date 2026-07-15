@@ -1,17 +1,46 @@
 <template>
   <div class="sync-page">
     <!-- ─── Page Header ─── -->
-    <div class="page-header">
-      <h3>Git 同步</h3>
+    <div class="page-title-row">
+      <h1 class="page-title">Git 同步</h1>
       <n-button size="small" quaternary @click="refreshAll" :loading="loading">
         刷新
       </n-button>
     </div>
 
     <n-spin :show="loading">
+      <!-- ─── Git 平台选择 ─── -->
+      <div v-if="!loading" class="section-card">
+        <div class="section-header">
+          <n-icon size="18" class="section-icon"><GitNetworkOutline /></n-icon>
+          <span class="section-title">Git 平台</span>
+        </div>
+        <div class="platform-selector">
+          <div
+            v-for="p in gitPlatforms"
+            :key="p.id"
+            class="platform-option"
+            :class="{ active: activePlatform === p.id, bound: p.configured }"
+            @click="selectPlatform(p.id)"
+          >
+            <BrandIcon :providerId="p.id" :providerName="p.name" :size="28" />
+            <div class="platform-option-info">
+              <span class="platform-option-name">{{ p.name }}</span>
+              <span v-if="p.configured && p.username" class="platform-option-user">{{ p.username }}</span>
+              <span v-else-if="!p.configured" class="platform-option-unbound">未绑定</span>
+            </div>
+            <n-icon v-if="activePlatform === p.id" size="18" class="platform-check"><CheckmarkCircle /></n-icon>
+          </div>
+        </div>
+        <div v-if="!currentPlatform?.configured" class="platform-unbound-hint">
+<n-icon size="14" class="hint-icon"><AlertCircleOutline /></n-icon>
+            <span>当前平台未绑定身份凭证，请先前往<a @click="goToSettings">设置</a>绑定</span>
+        </div>
+      </div>
+
       <!-- ─── Not Initialized ─── -->
       <div v-if="!loading && status && !status.isRepo" class="empty-card">
-        <n-icon size="48" color="#86868b">
+        <n-icon size="48">
           <GitBranchOutline />
         </n-icon>
         <p class="empty-title">Git 仓库未初始化</p>
@@ -25,57 +54,31 @@
       <template v-else-if="status">
         <!-- Status Cards -->
         <div class="stats-grid">
-          <div class="stat-card" :style="{ '--accent': '#007AFF' }">
-            <div class="stat-icon-wrap">
-              <n-icon size="20" color="#007AFF"><GitBranchOutline /></n-icon>
-            </div>
-            <div class="stat-info">
-              <span class="stat-value">{{ status.branch ?? '—' }}</span>
-              <span class="stat-label">当前分支</span>
-            </div>
+          <div class="stat-card">
+            <div class="stat-value">{{ status.branch ?? '—' }}</div>
+            <div class="stat-label">当前分支</div>
           </div>
 
-          <div class="stat-card" :style="{ '--accent': status.ahead > 0 ? '#FF9500' : '#34C759' }">
-            <div class="stat-icon-wrap">
-              <n-icon size="20" :color="status.ahead > 0 ? '#FF9500' : '#34C759'">
-                <ArrowUpCircleOutline />
-              </n-icon>
-            </div>
-            <div class="stat-info">
-              <span class="stat-value">{{ status.ahead }}</span>
-              <span class="stat-label">领先远程</span>
-            </div>
+          <div class="stat-card" :class="{ 'stat-warn': status.ahead > 0 }">
+            <div class="stat-value">{{ status.ahead }}</div>
+            <div class="stat-label">领先远程</div>
           </div>
 
-          <div class="stat-card" :style="{ '--accent': status.behind > 0 ? '#FF9500' : '#34C759' }">
-            <div class="stat-icon-wrap">
-              <n-icon size="20" :color="status.behind > 0 ? '#FF9500' : '#34C759'">
-                <ArrowDownCircleOutline />
-              </n-icon>
-            </div>
-            <div class="stat-info">
-              <span class="stat-value">{{ status.behind }}</span>
-              <span class="stat-label">落后远程</span>
-            </div>
+          <div class="stat-card" :class="{ 'stat-warn': status.behind > 0 }">
+            <div class="stat-value">{{ status.behind }}</div>
+            <div class="stat-label">落后远程</div>
           </div>
 
-          <div class="stat-card" :style="{ '--accent': status.uncommittedChanges > 0 ? '#FF9500' : '#34C759' }">
-            <div class="stat-icon-wrap">
-              <n-icon size="20" :color="status.uncommittedChanges > 0 ? '#FF9500' : '#34C759'">
-                <DocumentTextOutline />
-              </n-icon>
-            </div>
-            <div class="stat-info">
-              <span class="stat-value">{{ status.uncommittedChanges }}</span>
-              <span class="stat-label">未提交变更</span>
-            </div>
+          <div class="stat-card" :class="{ 'stat-warn': status.uncommittedChanges > 0 }">
+            <div class="stat-value">{{ status.uncommittedChanges }}</div>
+            <div class="stat-label">未提交变更</div>
           </div>
         </div>
 
         <!-- ─── Sync Actions ─── -->
         <div class="section-card">
           <div class="section-header">
-            <n-icon size="18" color="#007AFF"><CloudUploadOutline /></n-icon>
+            <n-icon size="18" class="section-icon"><CloudUploadOutline /></n-icon>
             <span class="section-title">同步操作</span>
           </div>
 
@@ -124,7 +127,7 @@
             </div>
 
             <div v-if="!status.hasRemote" class="no-remote-hint">
-              <n-icon size="14" color="#FF9500"><AlertCircleOutline /></n-icon>
+              <n-icon size="14" class="hint-icon"><AlertCircleOutline /></n-icon>
               <span>尚未配置远程仓库，请在下方设置远程仓库地址</span>
             </div>
           </div>
@@ -133,7 +136,7 @@
         <!-- ─── Remote Config ─── -->
         <div class="section-card">
           <div class="section-header">
-            <n-icon size="18" color="#5856D6"><GitNetworkOutline /></n-icon>
+            <n-icon size="18" class="section-icon"><GitNetworkOutline /></n-icon>
             <span class="section-title">远程仓库</span>
           </div>
 
@@ -160,7 +163,7 @@
         <!-- ─── Changed Files ─── -->
         <div v-if="status.changedFiles.length > 0" class="section-card">
           <div class="section-header">
-            <n-icon size="18" color="#FF9500"><DocumentTextOutline /></n-icon>
+            <n-icon size="18" class="section-icon"><DocumentTextOutline /></n-icon>
             <span class="section-title">未提交变更 ({{ status.changedFiles.length }})</span>
           </div>
           <div class="file-list">
@@ -179,7 +182,7 @@
         <!-- ─── Commit History ─── -->
         <div class="section-card">
           <div class="section-header">
-            <n-icon size="18" color="#34C759"><TimeOutline /></n-icon>
+            <n-icon size="18" class="section-icon"><TimeOutline /></n-icon>
             <span class="section-title">提交历史</span>
           </div>
 
@@ -206,23 +209,25 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue';
+import { ref, onMounted, computed } from 'vue';
+import { useRouter } from 'vue-router';
 import { useMessage } from 'naive-ui';
 import {
-  GitBranchOutline,
-  GitNetworkOutline,
-  CloudUploadOutline,
-  CloudDownloadOutline,
-  ArrowUpCircleOutline,
-  ArrowDownCircleOutline,
-  DocumentTextOutline,
-  TimeOutline,
-  AlertCircleOutline,
-  SparklesOutline,
-} from '@vicons/ionicons5';
-import { api, type SyncStatusInfo, type SyncCommit } from '../api';
+    GitBranchOutline,
+    GitNetworkOutline,
+    CloudUploadOutline,
+    CloudDownloadOutline,
+    DocumentTextOutline,
+    TimeOutline,
+    AlertCircleOutline,
+    SparklesOutline,
+    CheckmarkCircle,
+  } from '@vicons/ionicons5';
+import BrandIcon from '../components/brand-icon.vue';
+import { api, type SyncStatusInfo, type SyncCommit, type GitPlatformInfo } from '../api';
 
 const message = useMessage();
+const router = useRouter();
 
 const loading = ref(false);
 const status = ref<SyncStatusInfo | null>(null);
@@ -230,26 +235,54 @@ const commits = ref<SyncCommit[]>([]);
 const commitMessage = ref('');
 const remoteUrl = ref('');
 
+// Git 平台
+const gitPlatforms = ref<GitPlatformInfo[]>([]);
+const activePlatform = ref<'github' | 'gitee'>('github');
+
 const pushLoading = ref(false);
 const pullLoading = ref(false);
 const initLoading = ref(false);
 const remoteLoading = ref(false);
 const generatingCommit = ref(false);
 
+const currentPlatform = computed(() =>
+  gitPlatforms.value.find(p => p.id === activePlatform.value)
+);
+
 async function refreshAll() {
   loading.value = true;
   try {
-    const [statusRes, logRes] = await Promise.all([
+    const [statusRes, logRes, platformsRes] = await Promise.all([
       api.getSyncStatus(),
       api.getSyncLog(30),
+      api.getGitPlatforms(),
     ]);
     status.value = statusRes;
     commits.value = logRes.commits;
+    gitPlatforms.value = platformsRes.platforms;
+    if (platformsRes.active) {
+      activePlatform.value = platformsRes.active;
+    }
   } catch (e) {
     message.error(`加载失败: ${(e as Error).message}`);
   } finally {
     loading.value = false;
   }
+}
+
+async function selectPlatform(platform: 'github' | 'gitee') {
+  try {
+    await api.enableGitPlatform(platform, true);
+    activePlatform.value = platform;
+    message.success(`已切换到 ${platform === 'github' ? 'GitHub' : 'Gitee'}`);
+    await refreshAll();
+  } catch (e) {
+    message.error(`切换失败: ${(e as Error).message}`);
+  }
+}
+
+function goToSettings() {
+  router.push({ name: 'settings' });
 }
 
 async function doPush() {
@@ -376,22 +409,6 @@ async function generateCommit() {
   margin: 0 auto;
 }
 
-/* ─── Page Header ────────────────────────────────────────────────── */
-.page-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 20px;
-}
-
-.page-header h3 {
-  margin: 0;
-  font-size: 17px;
-  font-weight: 700;
-  color: #1d1d1f;
-  letter-spacing: -0.01em;
-}
-
 /* ─── Empty / Not Initialized ───────────────────────────────────── */
 .empty-card {
   display: flex;
@@ -402,90 +419,73 @@ async function generateCommit() {
   text-align: center;
 }
 
+.empty-card .n-icon {
+  color: var(--text-3);
+}
+
 .empty-title {
   margin: 8px 0 0;
   font-size: 16px;
   font-weight: 600;
-  color: #1d1d1f;
+  color: var(--text);
 }
 
 .empty-desc {
   margin: 0 0 12px;
   font-size: 13px;
-  color: #86868b;
+  color: var(--text-2);
 }
 
 /* ─── Stats Grid ─────────────────────────────────────────────────── */
 .stats-grid {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
-  gap: 14px;
-  margin-bottom: 20px;
+  gap: 10px;
+  margin-bottom: 18px;
 }
 
 .stat-card {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  padding: 16px 18px;
-  border-radius: 16px;
-  background: rgba(255, 255, 255, 0.60);
-  backdrop-filter: blur(20px) saturate(180%);
-  -webkit-backdrop-filter: blur(20px) saturate(180%);
-  border: 1px solid rgba(255, 255, 255, 0.6);
-  box-shadow: 0 1px 6px rgba(0, 0, 0, 0.04);
-  transition: transform 0.15s ease, box-shadow 0.15s ease;
+  padding: 14px 16px;
+  border-radius: 10px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-sm);
 }
 
-.stat-card:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.06);
-}
-
-.stat-icon-wrap {
-  width: 40px;
-  height: 40px;
-  border-radius: 12px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: color-mix(in srgb, var(--accent) 12%, transparent);
-  flex-shrink: 0;
-}
-
-.stat-info {
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-  min-width: 0;
+.stat-card.stat-warn {
+  border-color: color-mix(in srgb, var(--warning) 35%, var(--border));
 }
 
 .stat-value {
   font-size: 18px;
   font-weight: 700;
-  color: #1d1d1f;
+  color: var(--text);
   line-height: 1.2;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  letter-spacing: -0.015em;
+}
+
+.stat-card.stat-warn .stat-value {
+  color: var(--warning);
 }
 
 .stat-label {
   font-size: 12px;
-  color: #86868b;
+  color: var(--text-3);
   font-weight: 500;
+  margin-top: 2px;
 }
 
 /* ─── Section Card ───────────────────────────────────────────────── */
 .section-card {
-  padding: 18px 20px;
-  border-radius: 16px;
-  background: rgba(255, 255, 255, 0.65);
-  backdrop-filter: blur(20px) saturate(180%);
-  -webkit-backdrop-filter: blur(20px) saturate(180%);
-  border: 1px solid rgba(255, 255, 255, 0.7);
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.03);
-  margin-bottom: 14px;
+  padding: 16px 18px;
+  border-radius: 10px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-sm);
+  margin-bottom: 12px;
 }
 
 .section-header {
@@ -495,10 +495,14 @@ async function generateCommit() {
   margin-bottom: 14px;
 }
 
+.section-icon {
+  color: var(--text-2);
+}
+
 .section-title {
-  font-size: 15px;
+  font-size: 14px;
   font-weight: 600;
-  color: #1d1d1f;
+  color: var(--text);
 }
 
 /* ─── Sync Actions ───────────────────────────────────────────────── */
@@ -514,12 +518,30 @@ async function generateCommit() {
   gap: 8px;
 }
 
-.no-remote-hint {
+.no-remote-hint,
+.platform-unbound-hint {
   display: flex;
   align-items: center;
   gap: 6px;
   font-size: 13px;
-  color: #c26e00;
+  color: var(--warning);
+}
+
+.platform-unbound-hint {
+  margin-top: 12px;
+  padding: 10px 14px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--warning) 8%, transparent);
+}
+
+.platform-unbound-hint a {
+  color: var(--accent);
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+.hint-icon {
+  color: var(--warning);
 }
 
 /* ─── Remote Config ──────────────────────────────────────────────── */
@@ -535,21 +557,22 @@ async function generateCommit() {
   align-items: center;
   gap: 10px;
   padding: 8px 12px;
-  border-radius: 10px;
-  background: rgba(0, 0, 0, 0.03);
+  border-radius: 8px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
 }
 
 .remote-name {
   font-size: 13px;
   font-weight: 600;
-  color: #1d1d1f;
+  color: var(--text);
   min-width: 60px;
 }
 
 .remote-url {
   font-family: 'SF Mono', Monaco, monospace;
   font-size: 12px;
-  color: #007aff;
+  color: var(--accent);
   word-break: break-all;
 }
 
@@ -578,9 +601,9 @@ async function generateCommit() {
 .file-status-badge {
   font-size: 10px;
   font-weight: 700;
-  width: 24px;
-  height: 24px;
-  border-radius: 6px;
+  width: 22px;
+  height: 22px;
+  border-radius: 4px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -588,29 +611,29 @@ async function generateCommit() {
 }
 
 .status-untracked {
-  background: rgba(52, 199, 89, 0.12);
-  color: #248a3d;
+  background: color-mix(in srgb, var(--success) 14%, transparent);
+  color: color-mix(in srgb, var(--success) 80%, #000);
 }
 
 .status-modified {
-  background: rgba(255, 149, 0, 0.12);
-  color: #c26e00;
+  background: color-mix(in srgb, var(--warning) 14%, transparent);
+  color: color-mix(in srgb, var(--warning) 75%, #000);
 }
 
 .status-deleted {
-  background: rgba(255, 59, 48, 0.12);
-  color: #c3271f;
+  background: color-mix(in srgb, var(--danger) 14%, transparent);
+  color: color-mix(in srgb, var(--danger) 78%, #000);
 }
 
 .status-staged {
-  background: rgba(0, 122, 255, 0.12);
-  color: #0055b3;
+  background: var(--accent-soft);
+  color: var(--accent);
 }
 
 .file-path {
   font-family: 'SF Mono', Monaco, monospace;
   font-size: 12px;
-  color: #6e6e73;
+  color: var(--text-2);
   word-break: break-all;
 }
 
@@ -635,15 +658,15 @@ async function generateCommit() {
   top: 24px;
   bottom: -10px;
   width: 2px;
-  background: rgba(0, 0, 0, 0.06);
+  background: var(--border);
 }
 
 .commit-dot {
   width: 12px;
   height: 12px;
   border-radius: 50%;
-  border: 2px solid #86868b;
-  background: #fff;
+  border: 2px solid var(--text-3);
+  background: var(--surface);
   flex-shrink: 0;
   margin-top: 4px;
   position: relative;
@@ -651,9 +674,8 @@ async function generateCommit() {
 }
 
 .commit-dot.commit-head {
-  border-color: #007aff;
-  background: #007aff;
-  box-shadow: 0 0 0 3px rgba(0, 122, 255, 0.12);
+  border-color: var(--accent);
+  background: var(--accent);
 }
 
 .commit-body {
@@ -662,9 +684,9 @@ async function generateCommit() {
 }
 
 .commit-message {
-  font-size: 14px;
+  font-size: 13.5px;
   font-weight: 500;
-  color: #1d1d1f;
+  color: var(--text);
   margin-bottom: 4px;
   word-break: break-word;
 }
@@ -678,32 +700,93 @@ async function generateCommit() {
 
 .commit-author {
   font-size: 12px;
-  color: #6e6e73;
+  color: var(--text-2);
   font-weight: 500;
 }
 
 .commit-hash {
   font-family: 'SF Mono', Monaco, monospace;
   font-size: 11px;
-  color: #86868b;
+  color: var(--text-3);
 }
 
 .commit-date {
   font-size: 12px;
-  color: #86868b;
+  color: var(--text-3);
 }
 
 .commit-refs {
   font-size: 10px;
   font-weight: 600;
-  color: #007aff;
-  background: rgba(0, 122, 255, 0.08);
+  color: var(--accent);
+  background: var(--accent-soft);
   padding: 1px 6px;
   border-radius: 4px;
 }
 
 .empty-inline {
   padding: 32px 0;
+}
+
+/* ─── Git 平台选择器 ──────────────────────────────────────────────── */
+.platform-selector {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.platform-option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 16px;
+  border-radius: 10px;
+  background: var(--surface-2);
+  border: 2px solid var(--border);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  min-width: 160px;
+}
+
+.platform-option:hover {
+  background: var(--surface-hover);
+  border-color: var(--border-strong);
+}
+
+.platform-option.active {
+  border-color: var(--success);
+  background: color-mix(in srgb, var(--success) 8%, transparent);
+}
+
+.platform-option.bound {
+  background: var(--surface);
+}
+
+.platform-option-info {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.platform-option-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.platform-option-user {
+  font-size: 12px;
+  color: var(--success);
+}
+
+.platform-option-unbound {
+  font-size: 12px;
+  color: var(--text-3);
+}
+
+.platform-check {
+  color: var(--success);
 }
 
 /* ─── Responsive ──────────────────────────────────────────────────── */

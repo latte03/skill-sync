@@ -88,7 +88,13 @@ describe('sanitizeName', () => {
   });
 
   it('路径遍历攻击防护', () => {
-    expect(sanitizeName('../../etc/passwd')).toBe('..-..-etc-passwd');
+    // ".." 被中和为 "--"，随后折叠为 "-"，首尾连字符和斜杠被去除
+    // "../../etc/passwd" → "--/--etc/passwd" → "-/-etc/passwd" → "etc/passwd"
+    expect(sanitizeName('../../etc/passwd')).toBe('etc/passwd');
+  });
+
+  it('保留嵌套路径中的斜杠', () => {
+    expect(sanitizeName('write-a-skill/engineering/tdd')).toBe('write-a-skill/engineering/tdd');
   });
 
   it('空字符串返回默认值', () => {

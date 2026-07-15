@@ -108,6 +108,14 @@ function buildAgents(): Record<string, AgentConfig> {
         fs.existsSync(path.join(home, '.clawdbot')) ||
         fs.existsSync(path.join(home, '.moltbot')),
     },
+
+    // 开发环境模拟 Agent
+    'mock-agent': {
+      name: 'mock-agent',
+      displayName: 'Mock Agent (Dev)',
+      skillsDir: '.mock-agent/skills',
+      detectInstalled: () => process.env.NODE_ENV === 'development' || fs.existsSync(path.join(home, '.mock-agent')),
+    },
   };
 }
 

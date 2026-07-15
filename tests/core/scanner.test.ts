@@ -76,7 +76,7 @@ describe('scanner', () => {
       expect(result).toHaveLength(1);
     });
 
-    it('无 SKILL.md 时使用目录名作为 skill 名', () => {
+    it('无 SKILL.md 的目录不被识别为 skill', () => {
       const skillDir = mockAgentSkillDir(env.agentsDir, '.claude/skills');
       const skillPath = path.join(skillDir, 'no-frontmatter');
       fs.mkdirSync(skillPath, { recursive: true });
@@ -84,9 +84,8 @@ describe('scanner', () => {
 
       const ctx = createTestContext({ homeDir: env.homeDir });
       const result = scanAgentSkills(ctx, 'claude-code');
-      expect(result).toHaveLength(1);
-      expect(result[0]!.name).toBe('no-frontmatter');
-      expect(result[0]!.description).toBeUndefined();
+      // 必须包含 SKILL.md 才会被识别为 skill
+      expect(result).toEqual([]);
     });
 
     it('检测 symlink', () => {
