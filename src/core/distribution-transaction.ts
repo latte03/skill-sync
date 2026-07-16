@@ -6,10 +6,13 @@
  */
 
 import fs from 'node:fs';
+import { isDeepStrictEqual } from 'node:util';
 import path from 'node:path';
-import { getLockEntry } from '../lib/lock.js';
+import { getLockEntry, setLockEntry } from '../lib/lock.js';
+import { readManifest, writeManifest } from '../lib/manifest.js';
 import { homePath, lockPath, manifestPath } from '../lib/paths.js';
 import { atomicWriteFile, StateLockConflictError, transactionLockPath } from '../lib/persistence.js';
+import type { LockEntry, Manifest } from '../lib/types.js';
 
 export interface ReplacedDestination {
   commit(): void;
@@ -21,15 +24,56 @@ interface RemovalJournal {
   entries: Array<{ destination: string; previous: string }>;
 }
 
+interface DistributionJournal {
+  name: string;
+  originalManifest: Manifest;
+  originalLockEntry: LockEntry;
+  expectedManifest: Manifest;
+  expectedLockEntry: LockEntry;
+  entries: Array<{ destination: string; previous?: string }>;
+}
+
 export interface RemovalJournalHandle {
-  prepareMove(destination: string, previous: string): void;
+  prepareMove(destination: string, previous?: string): void;
   clear(): void;
 }
+
+export interface DistributionJournalHandle extends RemovalJournalHandle {}
 
 /** Durable intent log for a multi-directory central deletion. */
 export function beginRemovalJournal(name: string): RemovalJournalHandle {
   const journal: RemovalJournal = { name, entries: [] };
   const journalPath = removalJournalPath();
+  persistJournal(journalPath, journal);
+  return {
+    prepareMove(destination, previous) {
+      if (!previous) return;
+      journal.entries.push({ destination, previous });
+      persistJournal(journalPath, journal);
+    },
+    clear() {
+      fs.rmSync(journalPath, { force: true });
+    },
+  };
+}
+
+/** Durable intent log for an atomic deploy or undeploy batch. */
+export function beginDistributionJournal(
+  name: string,
+  originalManifest: Manifest,
+  originalLockEntry: LockEntry,
+  expectedManifest: Manifest,
+  expectedLockEntry: LockEntry,
+): DistributionJournalHandle {
+  const journal: DistributionJournal = {
+    name,
+    originalManifest,
+    originalLockEntry,
+    expectedManifest,
+    expectedLockEntry,
+    entries: [],
+  };
+  const journalPath = distributionJournalPath();
   persistJournal(journalPath, journal);
   return {
     prepareMove(destination, previous) {
@@ -40,6 +84,46 @@ export function beginRemovalJournal(name: string): RemovalJournalHandle {
       fs.rmSync(journalPath, { force: true });
     },
   };
+}
+
+/**
+ * Complete a batch distribution that durably committed, or restore an
+ * incomplete batch to its original paths and metadata.
+ */
+export function recoverInterruptedDistribution(): { restored: number; cleaned: number } {
+  const journalPath = distributionJournalPath();
+  if (!fs.existsSync(journalPath)) return { restored: 0, cleaned: 0 };
+
+  const journal = JSON.parse(fs.readFileSync(journalPath, 'utf-8')) as DistributionJournal;
+  const committed = distributionStateMatches(journal);
+  let restored = 0;
+  let cleaned = 0;
+
+  for (const entry of [...journal.entries].reverse()) {
+    if (committed) {
+      if (entry.previous && fs.existsSync(entry.previous)) {
+        fs.rmSync(entry.previous, { recursive: true, force: true });
+        cleaned++;
+      }
+      continue;
+    }
+
+    if (entry.previous && fs.existsSync(entry.previous)) {
+      fs.rmSync(entry.destination, { recursive: true, force: true });
+      fs.renameSync(entry.previous, entry.destination);
+      restored++;
+    } else if (!entry.previous && fs.existsSync(entry.destination)) {
+      fs.rmSync(entry.destination, { recursive: true, force: true });
+      restored++;
+    }
+  }
+
+  if (!committed) {
+    writeManifest(journal.name, journal.originalManifest);
+    setLockEntry(journal.name, journal.originalLockEntry);
+  }
+  fs.rmSync(journalPath, { force: true });
+  return { restored, cleaned };
 }
 
 /** Recover a deletion interrupted after one or more directories were moved aside. */
@@ -82,7 +166,7 @@ export function assertDistributionStateUnlocked(name: string): void {
 export function replaceDestination(
   destination: string,
   createReplacement: () => void,
-  options?: { beforeMove?: (destination: string, previous: string) => void },
+  options?: { beforeMove?: (destination: string, previous?: string) => void },
 ): ReplacedDestination {
   const previous = path.join(
     path.dirname(destination),
@@ -96,6 +180,7 @@ export function replaceDestination(
     hadPrevious = true;
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+    options?.beforeMove?.(destination);
   }
 
   try {
@@ -122,6 +207,19 @@ function removalJournalPath(): string {
   return homePath('.distribution-remove.transaction.json');
 }
 
-function persistJournal(journalPath: string, journal: RemovalJournal): void {
+function distributionJournalPath(): string {
+  return homePath('.distribution.transaction.json');
+}
+
+function distributionStateMatches(journal: DistributionJournal): boolean {
+  try {
+    return isDeepStrictEqual(readManifest(journal.name), journal.expectedManifest) &&
+      isDeepStrictEqual(getLockEntry(journal.name), journal.expectedLockEntry);
+  } catch {
+    return false;
+  }
+}
+
+function persistJournal(journalPath: string, journal: RemovalJournal | DistributionJournal): void {
   atomicWriteFile(journalPath, JSON.stringify(journal, null, 2) + '\n');
 }

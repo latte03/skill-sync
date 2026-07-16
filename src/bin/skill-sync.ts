@@ -31,7 +31,7 @@ import { recoverManagedState } from '../core/state-recovery.js';
 
 const program = new Command();
 
-// Complete or roll back an interrupted destructive removal before any command
+// Complete or roll back interrupted state transitions before any command
 // observes the managed state.
 program.hook('preAction', () => {
   recoverManagedState();

@@ -33,6 +33,7 @@ import {
 } from './distribution-files.js';
 import {
   assertDistributionStateUnlocked,
+  beginDistributionJournal,
   beginRemovalJournal,
   recoverInterruptedRemoval,
   replaceDestination,
@@ -245,33 +246,38 @@ export function deploySkills(
     }
   }
   nextManifest.distribution.mode = deployMode;
+  const nextLockEntry = structuredClone(entry);
+  for (const plan of plans) {
+    nextLockEntry.distribution[plan.agentName] = {
+      mode: deployMode,
+      distributedAt: plan.distTarget.distributedAt,
+      sourceHash,
+      managed: true,
+    };
+  }
 
   assertDistributionStateUnlocked(name);
+  const journal = beginDistributionJournal(name, originalManifest, originalLockEntry, nextManifest, nextLockEntry);
   const destinations: ReturnType<typeof replaceDestination>[] = [];
   let lockUpdated = false;
   try {
     for (const plan of plans) {
       ctx.logger.debug(`  分发到 ${plan.agentName}: ${plan.destPath} (${deployMode})`);
-      destinations.push(replaceDestination(plan.destPath, () => createLink(repoPath, plan.destPath, deployMode)));
+      destinations.push(replaceDestination(plan.destPath, () => createLink(repoPath, plan.destPath, deployMode), {
+        beforeMove: journal.prepareMove,
+      }));
     }
     writeManifest(name, nextManifest);
-    updateLockEntry(name, latest => {
-      for (const plan of plans) {
-        latest.distribution[plan.agentName] = {
-          mode: deployMode,
-          distributedAt: plan.distTarget.distributedAt,
-          sourceHash,
-          managed: true,
-        };
-      }
-    });
+    setLockEntry(name, nextLockEntry);
     lockUpdated = true;
     for (const destination of destinations) destination.commit();
+    journal.clear();
   } catch (error) {
     try {
       writeManifest(name, originalManifest);
       if (lockUpdated) setLockEntry(name, originalLockEntry);
       for (const destination of destinations.reverse()) destination.rollback();
+      journal.clear();
     } catch {
       // Preserve the original state-write error; the state lock prevents
       // another skill-sync operation from racing this best-effort recovery.
@@ -363,7 +369,22 @@ function undeploySkillsWithStateLock(
     const targetIdx = nextManifest.distribution.targets.findIndex(target => target.agent === plan.agentName);
     if (targetIdx >= 0) nextManifest.distribution.targets[targetIdx]!.managed = false;
   }
+  const nextLockEntry = structuredClone(entry);
+  for (const plan of plans) {
+    const nextInfo = nextLockEntry.distribution[plan.agentName];
+    if (nextInfo) {
+      nextLockEntry.distribution[plan.agentName] = { ...nextInfo, managed: false };
+    } else {
+      nextLockEntry.distribution[plan.agentName] = {
+        mode: 'copy',
+        distributedAt: new Date().toISOString(),
+        sourceHash: computeSourceHash(repoPath),
+        managed: false,
+      };
+    }
+  }
   assertDistributionStateUnlocked(name);
+  const journal = beginDistributionJournal(name, originalManifest, originalLockEntry, nextManifest, nextLockEntry);
   const destinations: Array<{ plan: typeof plans[number]; transition: ReturnType<typeof replaceDestination> }> = [];
   let lockUpdated = false;
   try {
@@ -371,37 +392,27 @@ function undeploySkillsWithStateLock(
       if (plan.replaceLink) {
         destinations.push({
           plan,
-          transition: replaceDestination(plan.destPath, () => copyDirRecursive(repoPath, plan.destPath, ['.backup'])),
+          transition: replaceDestination(plan.destPath, () => copyDirRecursive(repoPath, plan.destPath, ['.backup']), {
+            beforeMove: journal.prepareMove,
+          }),
         });
       }
     }
     writeManifest(name, nextManifest);
-    updateLockEntry(name, latest => {
-      for (const plan of plans) {
-        const latestInfo = latest.distribution[plan.agentName];
-        if (latestInfo) {
-          latest.distribution[plan.agentName] = { ...latestInfo, managed: false };
-        } else {
-          latest.distribution[plan.agentName] = {
-            mode: 'copy',
-            distributedAt: new Date().toISOString(),
-            sourceHash: computeSourceHash(repoPath),
-            managed: false,
-          };
-        }
-      }
-    });
+    setLockEntry(name, nextLockEntry);
     lockUpdated = true;
     for (const { transition } of destinations) transition.commit();
     for (const plan of plans) {
       if (plan.replaceLink) ctx.logger.debug(`  ${plan.agentName}: 解除链接并复制副本到 ${plan.destPath}`);
       else ctx.logger.debug(`  ${plan.agentName}: 保留现有副本或手动目录（记录模式: ${plan.currentMode ?? 'unknown'}）`);
     }
+    journal.clear();
   } catch (error) {
     try {
       writeManifest(name, originalManifest);
       if (lockUpdated) setLockEntry(name, originalLockEntry);
       for (const { transition } of destinations.reverse()) transition.rollback();
+      journal.clear();
     } catch {
       // Preserve the original state-write error.
     }

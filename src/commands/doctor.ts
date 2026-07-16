@@ -43,7 +43,7 @@ export function doctorCommand(): void {
     const recovery = recoverManagedState();
     if (recovery.restored > 0 || recovery.cleaned > 0) {
       results.push({
-        name: '删除事务恢复',
+        name: '状态事务恢复',
         status: 'ok',
         message: recovery.restored > 0
           ? `已恢复 ${recovery.restored} 个目录`
@@ -51,7 +51,7 @@ export function doctorCommand(): void {
       });
     }
   } catch (error) {
-    results.push({ name: '删除事务恢复', status: 'warn', message: (error as Error).message });
+    results.push({ name: '状态事务恢复', status: 'warn', message: (error as Error).message });
   }
 
   // 1. 中央仓库
