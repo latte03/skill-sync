@@ -82,19 +82,19 @@ describe('paths', () => {
     });
 
     it('skillRepoPath', () => {
-      expect(skillRepoPath('anthropics', 'pdf')).toBe(
+      expect(skillRepoPath('anthropics/pdf')).toBe(
         path.join('/tmp/skill-sync-test', 'skills', 'anthropics', 'pdf'),
       );
     });
 
     it('manifestPath', () => {
-      expect(manifestPath('anthropics', 'pdf')).toBe(
+      expect(manifestPath('anthropics/pdf')).toBe(
         path.join('/tmp/skill-sync-test', 'skills', 'anthropics', 'pdf', 'manifest.yaml'),
       );
     });
 
     it('skillMdPath', () => {
-      expect(skillMdPath('anthropics', 'pdf')).toBe(
+      expect(skillMdPath('anthropics/pdf')).toBe(
         path.join('/tmp/skill-sync-test', 'skills', 'anthropics', 'pdf', 'SKILL.md'),
       );
     });

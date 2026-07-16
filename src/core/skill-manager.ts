@@ -19,10 +19,10 @@ import os from 'node:os';
 import crypto from 'node:crypto';
 import { readManifest, writeManifest, manifestExists, createManifestFromFrontmatter } from '../lib/manifest.js';
 import { readLock, writeLock, getLockEntry, setLockEntry, removeLockEntry, getAllLockSkillNames } from '../lib/lock.js';
-import { parseFrontmatter, extractVersion } from '../lib/frontmatter.js';
-import { sanitizeMetadata, sanitizeName } from '../lib/sanitize.js';
+import { parseFrontmatter, extractVersion, hasXmlBrackets } from '../lib/frontmatter.js';
+import { sanitizeMetadata, sanitizeName, isPathSafe } from '../lib/sanitize.js';
 import { getAgentSkillDir, getAgents } from '../lib/agents.js';
-import { skillRepoPath, skillMdPath, backupDirPath } from '../lib/paths.js';
+import { skillRepoPath, skillMdPath, backupDirPath, skillsDirPath } from '../lib/paths.js';
 import { LOCKFILE_VERSION, BACKUP_DIR } from '../lib/constants.js';
 import { copyDirRecursive } from '../lib/fs-utils.js';
 import type {
@@ -143,30 +143,17 @@ export function computeSourceHash(dir: string): string {
 // ==================== Manifest 路径解析 ====================
 
 /**
- * 尝试读取 manifest（先尝试无命名空间，再尝试 namespace/skillName 格式）
+ * 尝试读取 manifest
  *
- * @returns manifest（可能为 null）、成功读取时使用的 namespace 和 skillName
+ * @returns manifest（可能为 null）
  */
-function tryReadManifest(name: string): { manifest: Manifest | null; namespace: string; skillName: string } {
-  // 1. 先尝试作为无命名空间的 skill（本地导入，完整路径作为 name）
+function tryReadManifest(name: string): { manifest: Manifest | null } {
   try {
-    const manifest = readManifest('', name);
-    return { manifest, namespace: '', skillName: name };
+    const manifest = readManifest(name);
+    return { manifest };
   } catch {
-    // 2. 尝试解析为 namespace/skillName 格式（GitHub 导入）
-    const firstSlash = name.indexOf('/');
-    if (firstSlash !== -1) {
-      const ns = name.slice(0, firstSlash);
-      const sn = name.slice(firstSlash + 1);
-      try {
-        const manifest = readManifest(ns, sn);
-        return { manifest, namespace: ns, skillName: sn };
-      } catch {
-        // manifest 不存在（损坏状态）
-      }
-    }
+    return { manifest: null };
   }
-  return { manifest: null, namespace: '', skillName: name };
 }
 
 // ==================== Skill 查询 ====================
@@ -181,15 +168,8 @@ export function listSkills(ctx: SkillSyncContext): SkillInfo[] {
   for (const [fullName, entry] of Object.entries(lock.skills)) {
     const { manifest } = tryReadManifest(fullName);
 
-    // 从 manifest 获取准确的 namespace 和 skillName
-    // 如果 manifest 中 namespace 为空，则整个 name 都是 skillName（本地导入的嵌套路径）
-    const namespace = manifest?.namespace ?? '';
-    const skillName = manifest?.name ?? fullName;
-
     skills.push({
       name: fullName,
-      namespace,
-      skillName,
       version: entry.version,
       description: manifest?.description ?? '',
       tags: manifest?.tags ?? [],
@@ -211,15 +191,8 @@ export function getSkillDetail(ctx: SkillSyncContext, name: string): SkillInfo |
 
   const { manifest } = tryReadManifest(name);
 
-  // 从 manifest 获取准确的 namespace 和 skillName
-  // 如果 manifest 中 namespace 为空，则整个 name 都是 skillName（本地导入的嵌套路径）
-  const namespace = manifest?.namespace ?? '';
-  const skillName = manifest?.name ?? name;
-
   return {
     name,
-    namespace,
-    skillName,
     version: entry.version,
     description: manifest?.description ?? '',
     tags: manifest?.tags ?? [],
@@ -245,17 +218,15 @@ export function deploySkill(
     throw new Error(`Skill 未找到: ${name}`);
   }
 
-  // 读取 manifest 获取准确的 namespace 和 skillName
+  // 读取 manifest
   const resolved = tryReadManifest(name);
   if (!resolved.manifest) {
     throw new Error(`无法读取 skill 的 manifest: ${name}`);
   }
   const manifest = resolved.manifest;
-  const namespace = resolved.namespace;
-  const repoPath = skillRepoPath(namespace, resolved.skillName);
-  // 从 manifest 获取准确的 skillName（包含完整路径）
+  const repoPath = skillRepoPath(name);
   const skillName = manifest.name;
-  
+
   const agentSkillDir = getAgentSkillDir(agentName);
   const destPath = path.join(agentSkillDir, skillName);
 
@@ -274,12 +245,27 @@ export function deploySkill(
       if (destLstat.isSymbolicLink()) {
         // 已是 symlink，检查是否指向同一源
         const target = fs.readlinkSync(destPath);
-        if (path.resolve(target) === path.resolve(repoPath)) {
+        const targetPath = path.resolve(path.dirname(destPath), target);
+        if (targetPath === path.resolve(repoPath)) {
           ctx.logger.debug(`  ${agentName}: 已分发（symlink 指向同一源），跳过`);
           return;
         }
+      } else {
+        const previous = entry.distribution[agentName];
+        if (previous?.managed && previous.mode === 'copy') {
+          const currentHash = computeSourceHash(destPath);
+          if (currentHash === previous.sourceHash) {
+            // 受管副本未被修改，可以安全地用新版内容覆盖。
+          } else {
+            throw new Error(`目标已被手动修改: ${destPath}（使用 --force 覆盖）`);
+          }
+        } else {
+          throw new Error(`目标已存在: ${destPath}（使用 --force 覆盖）`);
+        }
       }
-      throw new Error(`目标已存在: ${destPath}（使用 --force 覆盖）`);
+      if (destLstat.isSymbolicLink()) {
+        throw new Error(`目标已存在且指向其他来源: ${destPath}（使用 --force 覆盖）`);
+      }
     }
   }
 
@@ -313,7 +299,7 @@ export function deploySkill(
     manifest.distribution.targets.push(distTarget);
   }
   manifest.distribution.mode = deployMode;
-  writeManifest(namespace, skillName, manifest);
+  writeManifest(name, manifest);
 
   // 更新 lock
   entry.distribution[agentName] = {
@@ -326,7 +312,13 @@ export function deploySkill(
 }
 
 /**
- * 取消分发（从 Agent 目录移除）
+ * 取消分发（保留副本，标记 managed = false）
+ *
+ * 参考 PRD §10.5 + docs/design-distribution.md §10.5：
+ * - symlink/junction: 解除链接 → 复制中央仓库内容到 Agent 目录
+ * - copy: 保持不变（已是副本）
+ * - 更新 manifest 和 lock 中的 managed = false（不删除 distribution 条目）
+ * - 此后该 Agent 下的 skill 副本不会被 update 更新（D-18）
  */
 export function undeploySkill(
   ctx: SkillSyncContext,
@@ -338,33 +330,69 @@ export function undeploySkill(
     throw new Error(`Skill 未找到: ${name}`);
   }
 
-  const [namespace, skillName] = name.split('/');
+  // 使用 tryReadManifest 获取 manifest
+  const resolved = tryReadManifest(name);
+  if (!resolved.manifest) {
+    throw new Error(`无法读取 skill 的 manifest: ${name}`);
+  }
+  const manifest = resolved.manifest;
+  const repoPath = skillRepoPath(name);
+  const skillName = manifest.name;
+
   const agentSkillDir = getAgentSkillDir(agentName);
   const destPath = path.join(agentSkillDir, skillName);
 
   // existsSync 会跟随符号链接，断裂符号链接返回 false；
   // lstatSync 不跟随链接，对断裂符号链接也能成功，仅对真正不存在的路径抛异常
+  let destLstat: fs.Stats | null = null;
   try {
-    fs.lstatSync(destPath);
+    destLstat = fs.lstatSync(destPath);
   } catch {
     ctx.logger.debug(`  ${agentName}: 目标不存在，跳过`);
     return;
   }
 
   if (ctx.dryRun) {
-    ctx.logger.info(`[dry-run] 将取消分发 ${name} ← ${agentName}`);
+    ctx.logger.info(`[dry-run] 将取消分发 ${name} ← ${agentName}（保留副本）`);
     return;
   }
 
-  removeLink(destPath);
+  // 根据当前分发模式执行不同策略
+  const distInfo = entry.distribution[agentName];
+  const currentMode = distInfo?.mode;
 
-  // 更新 manifest
-  const manifest = readManifest(namespace, skillName);
-  manifest.distribution.targets = manifest.distribution.targets.filter(t => t.agent !== agentName);
-  writeManifest(namespace, skillName, manifest);
+  if (destLstat.isSymbolicLink()) {
+    // symlink/junction 模式：解除链接 → 复制中央仓库内容到 Agent 目录
+    removeLink(destPath);
+    copyDirRecursive(repoPath, destPath, ['.backup']);
+    ctx.logger.debug(`  ${agentName}: 解除链接并复制副本到 ${destPath}`);
+  } else {
+    // copy 模式或被用户替换的旧链接：保持现有目录，绝不覆盖手动内容。
+    ctx.logger.debug(`  ${agentName}: 保留现有副本或手动目录（记录模式: ${currentMode ?? 'unknown'}）`);
+  }
 
-  // 更新 lock
-  delete entry.distribution[agentName];
+  // 更新 manifest：标记 managed = false（不删除 target）
+  const targetIdx = manifest.distribution.targets.findIndex(t => t.agent === agentName);
+  if (targetIdx >= 0) {
+    manifest.distribution.targets[targetIdx]!.managed = false;
+  }
+  writeManifest(name, manifest);
+
+  // 更新 lock：标记 managed = false（不删除 distribution 条目）
+  if (distInfo) {
+    entry.distribution[agentName] = {
+      ...distInfo,
+      managed: false,
+    };
+  } else {
+    // lock 中没有该 agent 的分发记录（异常状态），创建一条 unmanaged 记录
+    entry.distribution[agentName] = {
+      mode: 'copy',
+      distributedAt: new Date().toISOString(),
+      sourceHash: computeSourceHash(repoPath),
+      managed: false,
+    };
+  }
   setLockEntry(name, entry);
 }
 
@@ -373,7 +401,7 @@ export function undeploySkill(
 /**
  * 将散落 skill 导入到中央仓库
  *
- * 1. 复制 skill 文件到 skills/<namespace>/<skillName>/
+ * 1. 复制 skill 文件到 skills/<skillName>/
  * 2. 生成 manifest.yaml
  * 3. 更新 skills-lock.json
  * 4. 可选：替换原位置为 symlink
@@ -381,50 +409,58 @@ export function undeploySkill(
 export function importSkill(
   ctx: SkillSyncContext,
   scanned: ScannedSkill,
-  namespace: string,
   opts?: { replaceWithLink?: boolean; mode?: UserDeployMode },
 ): ImportResult {
   // 优先使用 relativePath 保持目录结构，如 write-a-skill/engineering/tdd
   const skillName = scanned.relativePath
     ? sanitizeName(scanned.relativePath)
     : sanitizeName(scanned.name);
-  const repoPath = skillRepoPath(namespace, skillName);
+  const repoPath = skillRepoPath(skillName);
+
+  if (!isPathSafe(repoPath, skillsDirPath())) {
+    throw new Error(`SkillKey 对应的存储路径不安全: ${repoPath}`);
+  }
+  if (pathsOverlap(scanned.dir, repoPath)) {
+    throw new Error(`拒绝将 skill 导入到自身目录: ${scanned.dir}`);
+  }
 
   ctx.logger.debug(`  导入 ${skillName} → ${repoPath}`);
 
-  // lock 中的 fullName：有命名空间时带前缀，无命名空间时直接用 skillName
-  const fullName = namespace ? `${namespace}/${skillName}` : skillName;
+  // name 就是完整路径标识
+  const fullName = skillName;
 
   if (ctx.dryRun) {
     ctx.logger.info(`[dry-run] 将导入 ${scanned.name} → ${fullName}`);
     return {
       name: fullName,
-      namespace,
       version: '0.0.0',
       deployed: [],
     };
   }
 
-  // 1. 复制文件到中央仓库
-  copyDirRecursive(scanned.dir, repoPath);
-
-  // 2. 读取 SKILL.md frontmatter
+  // 1. 读取并校验 SKILL.md frontmatter
   let frontmatterData: Record<string, unknown> = {};
   if (fs.existsSync(scanned.skillMdPath)) {
     const raw = fs.readFileSync(scanned.skillMdPath, 'utf-8');
     frontmatterData = parseFrontmatter(raw).data;
   }
+  if (hasXmlBrackets(frontmatterData)) {
+    throw new Error(`SKILL.md frontmatter 包含不允许的 XML 尖括号: ${skillName}`);
+  }
+
+  // 2. 复制文件到中央仓库
+  copyDirRecursive(scanned.dir, repoPath);
 
   // 3. 生成 manifest.yaml
   const source: SkillSource = {
     type: 'local',
     installedVia: 'init-scan',
   };
-  const manifest = createManifestFromFrontmatter(frontmatterData, namespace, skillName, source);
+  const manifest = createManifestFromFrontmatter(frontmatterData, skillName, source);
   const version = extractVersion(frontmatterData) ?? '0.0.0';
   manifest.currentVersion = version;
   manifest.initialVersion = version;
-  writeManifest(namespace, skillName, manifest);
+  writeManifest(skillName, manifest);
 
   // 4. 更新 skills-lock.json
   const lockEntry: LockEntry = {
@@ -457,7 +493,7 @@ export function importSkill(
       managed: true,
     });
     manifest.distribution.mode = deployMode;
-    writeManifest(namespace, skillName, manifest);
+    writeManifest(skillName, manifest);
 
     lockEntry.distribution[scanned.agentName] = {
       mode: deployMode,
@@ -471,7 +507,6 @@ export function importSkill(
 
   return {
     name: fullName,
-    namespace,
     version,
     deployed,
   };
@@ -498,26 +533,51 @@ export function removeSkill(
     throw new Error(`Skill 未找到: ${name}`);
   }
 
-  const [namespace, skillName] = name.split('/');
+  // 使用 tryReadManifest 获取 manifest
+  const resolved = tryReadManifest(name);
+  const skillName = resolved.manifest?.name ?? name;
 
   if (scope === 'agent' && agentName) {
-    // 仅从指定 Agent 取消分发
-    undeploySkill(ctx, name, agentName);
+    // 仅从指定 Agent 彻底移除（删除文件 + 移除 distribution 条目）
+    // 注意：remove --agent 是彻底删除，与 undeploy（保留副本）不同
+    const agentSkillDir = getAgentSkillDir(agentName);
+    const destPath = path.join(agentSkillDir, skillName);
+    try {
+      fs.lstatSync(destPath);
+      removeLink(destPath);
+    } catch {
+      // 目标不存在，跳过
+    }
+
+    // 更新 manifest：移除该 target
+    if (resolved.manifest) {
+      resolved.manifest.distribution.targets = resolved.manifest.distribution.targets.filter(
+        t => t.agent !== agentName,
+      );
+      writeManifest(name, resolved.manifest);
+    }
+
+    // 更新 lock：移除该 distribution 条目
+    delete entry.distribution[agentName];
+    setLockEntry(name, entry);
     return;
   }
 
   if (scope === 'all') {
-    // 删除中央仓库 + 所有 Agent 分发
+    // 删除中央仓库 + 所有 Agent 分发（彻底删除，不保留副本）
     for (const agent of Object.keys(entry.distribution)) {
       try {
-        undeploySkill(ctx, name, agent);
-      } catch (e) {
-        ctx.logger.warn(`  取消分发到 ${agent} 失败: ${(e as Error).message}`);
+        const agentSkillDir = getAgentSkillDir(agent);
+        const destPath = path.join(agentSkillDir, skillName);
+        fs.lstatSync(destPath);
+        removeLink(destPath);
+      } catch {
+        // 目标不存在，跳过
       }
     }
 
     // 删除 manifest + skill 目录
-    const repoPath = skillRepoPath(namespace, skillName);
+    const repoPath = skillRepoPath(name);
     if (fs.existsSync(repoPath)) {
       fs.rmSync(repoPath, { recursive: true, force: true });
     }
@@ -525,9 +585,15 @@ export function removeSkill(
     // 从 lock 移除
     removeLockEntry(name);
   } else if (scope === 'central') {
-    // 仅删除中央仓库（Agent 下的分发变为孤儿副本，不再管理）
-    // 不调用 undeploySkill — Agent 目录下的文件保留为孤儿副本
-    const repoPath = skillRepoPath(namespace, skillName);
+    // 仅删除中央仓库前，先把受管链接转换为独立副本，避免留下断裂 symlink。
+    for (const [agentName, distribution] of Object.entries(entry.distribution)) {
+      if (distribution.managed) {
+        undeploySkill(ctx, name, agentName);
+      }
+    }
+
+    // Agent 下的副本保留为孤儿副本，不再管理。
+    const repoPath = skillRepoPath(name);
     if (fs.existsSync(repoPath)) {
       fs.rmSync(repoPath, { recursive: true, force: true });
     }
@@ -551,9 +617,8 @@ export function createBackup(
     throw new Error(`Skill 未找到: ${name}`);
   }
 
-  const [namespace, skillName] = name.split('/');
-  const repoPath = skillRepoPath(namespace, skillName);
-  const backupDir = backupDirPath(namespace, skillName);
+  const repoPath = skillRepoPath(name);
+  const backupDir = backupDirPath(name);
 
   if (!fs.existsSync(backupDir)) {
     fs.mkdirSync(backupDir, { recursive: true });
@@ -564,13 +629,13 @@ export function createBackup(
   copyDirRecursive(repoPath, backupPath, [BACKUP_DIR]);
 
   // 更新 manifest
-  const manifest = readManifest(namespace, skillName);
+  const manifest = readManifest(name);
   manifest.lastBackup = {
     timestamp: new Date().toISOString(),
     fromVersion: entry.version,
     backupDir: backupPath,
   };
-  writeManifest(namespace, skillName, manifest);
+  writeManifest(name, manifest);
 
   ctx.logger.debug(`  备份创建: ${backupPath}`);
   return backupPath;
@@ -582,11 +647,7 @@ export function createBackup(
 export function listBackups(name: string): Array<{ version: string; timestamp: string; dir: string }> {
   const { manifest } = tryReadManifest(name);
 
-  // 从 manifest 获取准确的 namespace 和 skillName
-  const namespace = manifest?.namespace ?? '';
-  const skillName = manifest?.name ?? name;
-  
-  const backupDir = backupDirPath(namespace, skillName);
+  const backupDir = backupDirPath(name);
 
   if (!fs.existsSync(backupDir)) return [];
 
@@ -601,4 +662,10 @@ export function listBackups(name: string): Array<{ version: string; timestamp: s
       };
     })
     .sort((a, b) => b.timestamp.localeCompare(a.timestamp));
+}
+
+function pathsOverlap(left: string, right: string): boolean {
+  const a = path.resolve(left);
+  const b = path.resolve(right);
+  return a === b || a.startsWith(b + path.sep) || b.startsWith(a + path.sep);
 }

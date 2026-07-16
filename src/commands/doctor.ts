@@ -19,7 +19,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import chalk from 'chalk';
-import { getHomeDir, configPath, secretsPath, lockPath, skillsDirPath, cachePath, agentSkillDirPath } from '../lib/paths.js';
+import { getHomeDir, configPath, secretsPath, lockPath, skillsDirPath, cachePath, agentSkillDirPath, skillRepoPath } from '../lib/paths.js';
 import { readConfig } from '../config.js';
 import { readLock } from '../lib/lock.js';
 import { getAgents } from '../lib/agents.js';
@@ -129,13 +129,11 @@ export function doctorCommand(): void {
     const lock = readLock();
     let brokenCount = 0;
     for (const [skillName, entry] of Object.entries(lock.skills)) {
-      const [namespace, sn] = skillName.split('/');
-      if (!namespace || !sn) continue;
       for (const [agentName, dist] of Object.entries(entry.distribution)) {
         if (!dist.managed) continue;
         const agentConfig = agents[agentName];
         if (!agentConfig) continue;
-        const linkPath = path.join(agentSkillDirPath(agentConfig.skillsDir), sn);
+        const linkPath = path.join(agentSkillDirPath(agentConfig.skillsDir), skillName);
         if (fs.existsSync(linkPath) && fs.lstatSync(linkPath).isSymbolicLink()) {
           const target = fs.readlinkSync(linkPath);
           if (!fs.existsSync(target)) {
@@ -168,9 +166,7 @@ export function doctorCommand(): void {
     const lock = readLock();
     let missingCount = 0;
     for (const [skillName] of Object.entries(lock.skills)) {
-      const [namespace, sn] = skillName.split('/');
-      if (!namespace || !sn) continue;
-      const skillPath = path.join(skillsDir, namespace, sn);
+      const skillPath = skillRepoPath(skillName);
       if (!fs.existsSync(skillPath)) {
         missingCount++;
       }

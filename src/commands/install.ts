@@ -19,6 +19,7 @@ import { installGitHubSkill, installLocalSkill } from '../core/installer.js';
 import { parseSource, isLocalSource } from '../lib/source.js';
 import { getAgentDisplayName } from '../lib/agents.js';
 import { formatError, getExitCode } from '../lib/errors.js';
+import { getGitHubSkillLocation } from '../lib/skill-key.js';
 import type { InstallOpts, UserDeployMode } from '../lib/types.js';
 
 export async function installCommand(source: string, opts: InstallOpts & { deployType?: UserDeployMode }): Promise<void> {
@@ -45,7 +46,7 @@ export async function installCommand(source: string, opts: InstallOpts & { deplo
 
     if (isLocalSource(source)) {
       spinner.text = `从本地路径安装: ${source}`;
-      result = installLocalSkill(ctx, source, 'local', installOpts);
+      result = installLocalSkill(ctx, source, installOpts);
     } else {
       const parsed = parseSource(source);
       if (parsed.type === 'github') {
@@ -64,9 +65,10 @@ export async function installCommand(source: string, opts: InstallOpts & { deplo
 
     // 输出详情
     console.log();
-    console.log(chalk.gray(`  来源: ${result.source.type === 'github' ? `GitHub ${result.source.repo}` : '本地'}`));
-    if (result.source.path) {
-      console.log(chalk.gray(`  路径: ${result.source.path}`));
+    const githubLocation = getGitHubSkillLocation(result.source);
+    console.log(chalk.gray(`  来源: ${githubLocation ? `GitHub ${githubLocation.owner}/${githubLocation.repo}` : '本地'}`));
+    if (githubLocation?.skillPath) {
+      console.log(chalk.gray(`  路径: ${githubLocation.skillPath}`));
     }
 
     if (result.deployed.length > 0) {

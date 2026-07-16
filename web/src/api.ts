@@ -1,10 +1,10 @@
 /**
  * API 客户端 — 与 Hono 后端通信
  *
- * skill 的唯一标识为 name，格式为 "skill-name"（本地）或 "namespace/skill-name"（GitHub），
+ * skill 的唯一标识为不透明 SkillKey：本地为规范化相对路径，GitHub 为 owner/repo/skill-path，
  * 始终通过 URLSearchParams 作为一个不透明字符串传给 query 参数 name。
  * 不将斜杠拆成路径段，避免 %2F 在不同框架/代理下被歧义处理。
- * 本地导入的 skill 无 namespace，namespace 字段为空字符串。
+ * 不将 key 拆成来源、目录或显示名称；来源元数据由 API 单独返回。
  */
 
 const API_BASE = '/api';

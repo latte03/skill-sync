@@ -54,16 +54,16 @@ SkillSync 是一款跨端跨 Agent 的 AI Skill 管理工具。CLI 优先，Phas
 - 锁文件：`skills-lock.json`（JSON 格式，保持不变）
 - 标签定义：`tags.yaml`（YAML 格式）
 
-### 5. 命名空间与来源标识
+### 5. SkillKey 与来源标识
 
-- **本地导入**：无命名空间，目录结构 `skills/<skill-name>/`，通过 `source.type: 'local'` 标识来源
-- **GitHub 安装**：使用 `<namespace>/<skill-name>` 格式，目录结构 `skills/<namespace>/<skill-name>/`，通过 `source.type: 'github'` 标识来源
-- namespace 为 GitHub owner（如 `anthropics`），本地导入时 namespace 为空字符串
+- 所有业务接口只接收一个不透明的 `SkillKey`，不得通过 `split('/')` 解析来源或名称
+- **本地导入**：key 为规范化后的相对目录路径，例如 `write-a-skill/engineering/tdd`
+- **GitHub 安装**：key 为 `<owner>/<repo>/<skill-path>`；根目录 Skill 为 `<owner>/<repo>`
+- 中央目录直接为 `skills/<skill-key>/`，通过 `source.type` 标识来源
 - 来源标识统一使用 manifest 中的 `source` 属性：
   - `source.type`: `'local'` | `'github'`
   - `source.installedVia`: `'cli'` | `'init-scan'`
-  - `source.repo`: GitHub 仓库（仅 GitHub 来源）
-  - `source.path`: 子路径（仅 GitHub 来源）
+  - `source.owner` / `source.repo` / `source.skillPath`: GitHub 原始位置（仅 GitHub 来源）
 
 ### 6. 分发模式与平台适配
 
@@ -139,7 +139,7 @@ chore(skills): <action> <skill-name> [<detail>]
 
 **与 v1.2 的关键差异**（需要改进的点）：
 - 配置格式从 JSON 改为 YAML
-- 新增命名空间（`<namespace>/<skill-name>`）
+- 新增 SkillKey（单一、不拆分的 skill 标识）
 - 新增版本管理（备份 + 恢复）
 - 新增 skills.sh 搜索集成
 - 新增标签系统（tags.yaml）

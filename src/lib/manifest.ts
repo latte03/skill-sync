@@ -13,8 +13,8 @@ import type { Manifest } from './types.js';
 /**
  * 读取 skill 的 manifest.yaml
  */
-export function readManifest(namespace: string, skillName: string): Manifest {
-  const p = manifestPath(namespace, skillName);
+export function readManifest(name: string): Manifest {
+  const p = manifestPath(name);
   if (!fs.existsSync(p)) {
     throw new Error(`manifest.yaml 不存在: ${p}`);
   }
@@ -26,8 +26,8 @@ export function readManifest(namespace: string, skillName: string): Manifest {
 /**
  * 写入 skill 的 manifest.yaml
  */
-export function writeManifest(namespace: string, skillName: string, data: Manifest): void {
-  const p = manifestPath(namespace, skillName);
+export function writeManifest(name: string, data: Manifest): void {
+  const p = manifestPath(name);
   // 确保目录存在
   const dir = p.substring(0, p.lastIndexOf('/'));
   fs.mkdirSync(dir, { recursive: true });
@@ -38,15 +38,15 @@ export function writeManifest(namespace: string, skillName: string, data: Manife
 /**
  * 检查 skill 的 manifest.yaml 是否存在
  */
-export function manifestExists(namespace: string, skillName: string): boolean {
-  return fs.existsSync(manifestPath(namespace, skillName));
+export function manifestExists(name: string): boolean {
+  return fs.existsSync(manifestPath(name));
 }
 
 /**
  * 删除 skill 的 manifest.yaml
  */
-export function removeManifest(namespace: string, skillName: string): void {
-  const p = manifestPath(namespace, skillName);
+export function removeManifest(name: string): void {
+  const p = manifestPath(name);
   if (fs.existsSync(p)) {
     fs.unlinkSync(p);
   }
@@ -57,8 +57,7 @@ export function removeManifest(namespace: string, skillName: string): void {
  */
 export function createManifestFromFrontmatter(
   data: Record<string, unknown>,
-  namespace: string,
-  skillName: string,
+  name: string,
   source: Manifest['source'],
 ): Manifest {
   const description = typeof data.description === 'string' ? data.description : '';
@@ -91,8 +90,7 @@ export function createManifestFromFrontmatter(
   }
 
   return {
-    name: skillName,
-    namespace,
+    name,
     description,
     source,
     currentVersion: version,

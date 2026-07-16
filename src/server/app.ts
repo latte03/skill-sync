@@ -14,9 +14,9 @@
  *   GET    /api/config          — 获取配置
  *   GET    /api/check           — 检查更新
  *   POST   /api/skills/install  — 安装 skill
- *   POST   /api/skills/:name/deploy    — 分发 skill
- *   POST   /api/skills/:name/undeploy  — 取消分发
- *   DELETE /api/skills/:name    — 删除 skill
+ *   POST   /api/skill/deploy?name=...    — 分发 skill
+ *   POST   /api/skill/undeploy?name=...  — 取消分发
+ *   DELETE /api/skill?name=...           — 删除 skill
  */
 
 import { Hono } from 'hono';
@@ -59,7 +59,7 @@ import {
   generateCommitMessage,
 } from '../lib/ai-provider.js';
 import { readLock } from '../lib/lock.js';
-import { getHomeDir, skillMdPath } from '../lib/paths.js';
+import { getHomeDir, skillMdPath, skillRepoPath } from '../lib/paths.js';
 
 const app = new Hono();
 
@@ -160,7 +160,7 @@ app.get('/api/skill/detail', (c) => {
     // 读取 SKILL.md 内容
     let skillMd = '';
     try {
-      const mdPath = skillMdPath(detail.namespace, detail.skillName);
+      const mdPath = skillMdPath(name);
       if (fs.existsSync(mdPath)) {
         skillMd = fs.readFileSync(mdPath, 'utf-8');
       }
@@ -274,7 +274,7 @@ app.post('/api/skills/install', async (c) => {
 
     let result;
     if (isLocal) {
-      result = installLocalSkill(ctx, body.source, 'local', {
+      result = installLocalSkill(ctx, body.source, {
         skill: body.skill,
         noDeploy: body.noDeploy ?? false,
         ignoreDeps: true,
@@ -300,13 +300,16 @@ app.post('/api/skills/install', async (c) => {
 });
 
 // ─── 分发 Skill ───────────────────────────────────
-app.post('/api/skills/*/deploy', (c) => {
+app.post('/api/skill/deploy', (c) => {
   try {
     const ctx = createContext();
-    // 提取 skill name
-    const name = c.req.path.replace('/api/skills/', '').replace('/deploy', '');
+    const name = c.req.query('name') ?? '';
     const agentsParam = c.req.query('agents');
     const agents = agentsParam ? agentsParam.split(',').map(s => s.trim()).filter(Boolean) : [];
+
+    if (!name) {
+      return c.json({ error: '缺少 skill name' }, 400);
+    }
 
     if (agents.length === 0) {
       return c.json({ error: '请指定至少一个 Agent' }, 400);
@@ -323,13 +326,16 @@ app.post('/api/skills/*/deploy', (c) => {
 });
 
 // ─── 取消分发 ─────────────────────────────────────
-app.post('/api/skills/*/undeploy', (c) => {
+app.post('/api/skill/undeploy', (c) => {
   try {
     const ctx = createContext();
-    // 提取 skill name
-    const name = c.req.path.replace('/api/skills/', '').replace('/undeploy', '');
+    const name = c.req.query('name') ?? '';
     const agentsParam = c.req.query('agents');
     const agents = agentsParam ? agentsParam.split(',').map(s => s.trim()).filter(Boolean) : [];
+
+    if (!name) {
+      return c.json({ error: '缺少 skill name' }, 400);
+    }
 
     if (agents.length === 0) {
       return c.json({ error: '请指定至少一个 Agent' }, 400);
@@ -346,10 +352,14 @@ app.post('/api/skills/*/undeploy', (c) => {
 });
 
 // ─── 标签管理 ─────────────────────────────────────
-app.post('/api/skills/*/tags', async (c) => {
+app.post('/api/skill/tags', async (c) => {
   try {
-    const name = c.req.path.replace('/api/skills/', '').replace('/tags', '');
+    const name = c.req.query('name') ?? '';
     const body = await c.req.json<{ action: 'add' | 'remove'; tag: string }>();
+
+    if (!name) {
+      return c.json({ error: '缺少 skill name' }, 400);
+    }
 
     if (body.action === 'add') {
       addTag(name, body.tag);
@@ -580,9 +590,6 @@ app.get('/api/conflicts', (c) => {
     }> = [];
 
     for (const [fullName, entry] of Object.entries(lock.skills)) {
-      const [namespace, skillName] = fullName.split('/');
-      if (!namespace || !skillName) continue;
-
       for (const agentName of installedAgents) {
         const agentConfig = allAgents[agentName];
         if (!agentConfig) continue;
@@ -590,7 +597,7 @@ app.get('/api/conflicts', (c) => {
         const agentSkillDir = agentConfig.skillsDir;
         const destPath = path.join(
           agentSkillDir.startsWith('/') ? agentSkillDir : path.join(process.env.SKILL_SYNC_AGENTS_DIR ?? os.homedir(), agentSkillDir),
-          skillName
+          fullName
         );
 
         let lstat: fs.Stats | null = null;
@@ -606,8 +613,9 @@ app.get('/api/conflicts', (c) => {
         if (lstat.isSymbolicLink()) {
           // 检查 symlink 是否指向中央仓库
           const target = fs.readlinkSync(destPath);
-          const expectedPath = path.join(getHomeDir(), 'skills', namespace, skillName);
-          if (path.resolve(target) !== path.resolve(expectedPath)) {
+          const expectedPath = skillRepoPath(fullName);
+          const targetPath = path.resolve(path.dirname(destPath), target);
+          if (targetPath !== path.resolve(expectedPath)) {
             conflicts.push({
               skillName: fullName,
               agent: agentName,
@@ -646,12 +654,15 @@ app.get('/api/conflicts', (c) => {
 });
 
 // ─── 删除 Skill ───────────────────────────────────
-app.delete('/api/skills/*', (c) => {
+app.delete('/api/skill', (c) => {
   try {
     const ctx = createContext();
-    // 提取 skill name
-    const name = c.req.path.replace('/api/skills/', '');
+    const name = c.req.query('name') ?? '';
     const scope = c.req.query('scope') ?? 'all';
+
+    if (!name) {
+      return c.json({ error: '缺少 skill name' }, 400);
+    }
 
     removeSkill(ctx, name, scope as 'central' | 'all');
 

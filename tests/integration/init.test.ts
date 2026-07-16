@@ -60,12 +60,12 @@ describe('init command (integration)', () => {
       'utf-8',
     );
 
-    await initCommand({ yes: true, scan: true, namespace: 'local' });
+    await initCommand({ yes: true, scan: true });
 
     // 验证 skill 已导入
     const lock = readLock();
-    expect(lock.skills['local/my-skill']).toBeDefined();
-    expect(lock.skills['local/my-skill']!.version).toBe('1.0.0');
+    expect(lock.skills['my-skill']).toBeDefined();
+    expect(lock.skills['my-skill']!.version).toBe('1.0.0');
 
     // 验证中央仓库有文件
     const repoPath = path.join(env.homeDir, 'skills',  'my-skill');
@@ -84,11 +84,29 @@ describe('init command (integration)', () => {
       'utf-8',
     );
 
-    await initCommand({ yes: true, scan: true, link: true, namespace: 'local' });
+    await initCommand({ yes: true, scan: true, link: true });
 
     // 验证原位置现在是 symlink
     const stat = fs.lstatSync(skillDir);
     expect(stat.isSymbolicLink()).toBe(true);
+  });
+
+  it('--scan skips conflicting same-name skills instead of silently importing one', async () => {
+    for (const [agentDir, frontmatterName, content] of [
+      ['.claude/skills', 'claude-label', '# Claude version'],
+      ['.cursor/skills', 'cursor-label', '# Cursor version'],
+    ]) {
+      const skillDir = path.join(env.agentsDir, agentDir, 'same-skill');
+      fs.mkdirSync(skillDir, { recursive: true });
+      fs.writeFileSync(
+        path.join(skillDir, 'SKILL.md'),
+        `---\nname: ${frontmatterName}\ndescription: Test\n---\n\n${content}\n`,
+      );
+    }
+
+    await initCommand({ yes: true, scan: true });
+
+    expect(readLock().skills['same-skill']).toBeUndefined();
   });
 
   it('重复初始化（--yes 覆盖）', async () => {

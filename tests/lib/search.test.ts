@@ -39,7 +39,7 @@ describe('searchLocal', () => {
     // 安装到中央仓库
     const ctx = createTestContext();
     for (const skill of skills) {
-      installLocalSkill(ctx, path.join(testDir, skill.dir), 'local', {
+      installLocalSkill(ctx, path.join(testDir, skill.dir), {
         noDeploy: true,
         ignoreDeps: true,
       });
@@ -53,7 +53,7 @@ describe('searchLocal', () => {
   it('按名称搜索', () => {
     const results = searchLocal('pdf');
     expect(results.length).toBe(1);
-    expect(results[0]!.name).toBe('local/pdf-tools');
+    expect(results[0]!.name).toBe('pdf-tools');
     expect(results[0]!.isLocal).toBe(true);
     expect(results[0]!.localVersion).toBe('1.0.0');
   });
@@ -61,13 +61,13 @@ describe('searchLocal', () => {
   it('按描述搜索', () => {
     const results = searchLocal('automation');
     expect(results.length).toBe(1);
-    expect(results[0]!.name).toBe('local/web-design');
+    expect(results[0]!.name).toBe('web-design');
   });
 
   it('大小写不敏感', () => {
     const results = searchLocal('PDF');
     expect(results.length).toBe(1);
-    expect(results[0]!.name).toBe('local/pdf-tools');
+    expect(results[0]!.name).toBe('pdf-tools');
   });
 
   it('无匹配返回空数组', () => {
@@ -96,6 +96,6 @@ describe('searchLocal', () => {
     // 搜索 'gen' — image-gen 名称匹配，但其他 skill 描述中不含 'gen'
     const results = searchLocal('gen');
     expect(results.length).toBe(1);
-    expect(results[0]!.name).toBe('local/image-gen');
+    expect(results[0]!.name).toBe('image-gen');
   });
 });

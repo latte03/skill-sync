@@ -23,7 +23,7 @@ describe('tags', () => {
     );
 
     const ctx = createTestContext();
-    installLocalSkill(ctx, path.join(env.tempDir, 'test-skill'), 'local', {
+    installLocalSkill(ctx, path.join(env.tempDir, 'test-skill'), {
       noDeploy: true,
       ignoreDeps: true,
     });
@@ -34,49 +34,49 @@ describe('tags', () => {
   });
 
   it('addTag 给 skill 添加标签', () => {
-    addTag('local/test-skill', 'document');
+    addTag('test-skill', 'document');
     const tags = listAllTags();
-    expect(tags['document']).toContain('local/test-skill');
+    expect(tags['document']).toContain('test-skill');
   });
 
   it('addTag 同步到 manifest', () => {
-    addTag('local/test-skill', 'document');
-    const skillTags = getSkillTags('local/test-skill');
+    addTag('test-skill', 'document');
+    const skillTags = getSkillTags('test-skill');
     expect(skillTags).toContain('document');
   });
 
   it('addTag 不重复添加', () => {
-    addTag('local/test-skill', 'document');
-    addTag('local/test-skill', 'document');
+    addTag('test-skill', 'document');
+    addTag('test-skill', 'document');
     const tags = listAllTags();
     expect(tags['document'].length).toBe(1);
   });
 
   it('addTag 支持多个标签', () => {
-    addTag('local/test-skill', 'document');
-    addTag('local/test-skill', 'coding');
-    const skillTags = getSkillTags('local/test-skill');
+    addTag('test-skill', 'document');
+    addTag('test-skill', 'coding');
+    const skillTags = getSkillTags('test-skill');
     expect(skillTags).toContain('document');
     expect(skillTags).toContain('coding');
   });
 
   it('removeTag 移除标签', () => {
-    addTag('local/test-skill', 'document');
-    removeTag('local/test-skill', 'document');
+    addTag('test-skill', 'document');
+    removeTag('test-skill', 'document');
     const tags = listAllTags();
     expect(tags['document']).toBeUndefined();
   });
 
   it('removeTag 同步到 manifest', () => {
-    addTag('local/test-skill', 'document');
-    removeTag('local/test-skill', 'document');
-    const skillTags = getSkillTags('local/test-skill');
+    addTag('test-skill', 'document');
+    removeTag('test-skill', 'document');
+    const skillTags = getSkillTags('test-skill');
     expect(skillTags).not.toContain('document');
   });
 
   it('listAllTags 返回所有标签', () => {
-    addTag('local/test-skill', 'document');
-    addTag('local/test-skill', 'coding');
+    addTag('test-skill', 'document');
+    addTag('test-skill', 'coding');
     const tags = listAllTags();
     expect(Object.keys(tags).length).toBe(2);
     expect(tags['document']).toBeDefined();
@@ -84,9 +84,9 @@ describe('tags', () => {
   });
 
   it('listSkillsByTag 返回标签下的 skill', () => {
-    addTag('local/test-skill', 'document');
+    addTag('test-skill', 'document');
     const skills = listSkillsByTag('document');
-    expect(skills).toContain('local/test-skill');
+    expect(skills).toContain('test-skill');
   });
 
   it('listSkillsByTag 不存在的标签返回空数组', () => {
@@ -104,8 +104,8 @@ describe('tags', () => {
   });
 
   it('移除最后一个标签后标签键被删除', () => {
-    addTag('local/test-skill', 'temp');
-    removeTag('local/test-skill', 'temp');
+    addTag('test-skill', 'temp');
+    removeTag('test-skill', 'temp');
     const tags = listAllTags();
     expect(tags['temp']).toBeUndefined();
   });

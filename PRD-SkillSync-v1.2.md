@@ -186,6 +186,7 @@ SkillSync 是一款**以 CLI 为核心、文件系统为真相源（Source of Tr
 **决策结论**：CLI 是核心引擎入口，Web Dashboard（`skill-sync ui`）是 Phase 2 正式功能。两者共享同一套 Core 引擎 API。
 
 **理由**：
+
 1. Skill 的本质是文件系统资产，CLI 操作文件系统的成本远低于 GUI。
 2. 目标用户是开发者群体，天然习惯命令行。
 3. CI/CD 与自动化集成的需要。
@@ -198,6 +199,7 @@ SkillSync 是一款**以 CLI 为核心、文件系统为真相源（Source of Tr
 **决策结论**：所有 Skill 数据以标准化文件结构存储在文件系统中。
 
 **理由**：
+
 1. **Git 友好性**。文本文件可以被 diff、merge、code review、回滚。
 2. **可移植性**。整个技能库就是一个文件夹，可以拷贝、备份、挂载到任何位置。
 3. **Agent 兼容性**：所有 Agent 都是通过读取文件系统中的 SKILL.md 来加载 Skill 的。
@@ -318,7 +320,7 @@ export class SkillManager {
   info(name: string): SkillDetail
   remove(name: string, scope: RemoveScope): void
   tag(name: string, tags: string[]): void
-  importLocal(path: string, namespace?: string): ImportResult  // 增量导入本地 skill
+  importLocal(path: string): ImportResult                      // 增量导入本地 skill
 }
 
 // src/core/version-manager.ts
@@ -355,6 +357,7 @@ export class SyncManager {
 ```
 
 **Phase 1**：CLI 命令创建 Context → 实例化 Core → 调用方法：
+
 ```typescript
 const ctx = createContext();
 const mgr = new SkillManager(ctx);
@@ -362,6 +365,7 @@ mgr.list();
 ```
 
 **Phase 2**：HTTP API = Hono 路由调用同一个 Core：
+
 ```typescript
 const ctx = createContext();
 const mgr = new SkillManager(ctx);
@@ -374,9 +378,7 @@ app.get('/api/skills', (c) => c.json(mgr.list()));
 // src/lib/types.ts
 
 interface SkillInfo {
-  name: string;                    // 带命名空间的完整名称: anthropics/pdf-processing
-  namespace: string;
-  skillName: string;
+  name: string;                    // SkillKey；GitHub 例: anthropics/skills/skills/pdf-processing
   version: string;
   description: string;
   tags: string[];
@@ -448,7 +450,6 @@ interface InstallOpts {
 
 interface InstallResult {
   name: string;
-  namespace: string;
   version: string;
   source: SkillSource;
   deployed: string[];              // 已分发到的 Agent
@@ -548,15 +549,14 @@ interface Dependency {
 ├── tags.yaml                               # 标签定义
 │
 ├── skills/                                 # Skill 仓库（Source of Truth）
-│   └── <namespace>/                        #   命名空间避免冲突（D-14）
-│       └── <skill-name>/                   #   每个 skill 一个目录
-│           ├── SKILL.md                    #   核心 skill 定义
-│           ├── scripts/                    #   可选脚本目录
-│           ├── references/                 #   可选参考资料
-│           ├── assets/                     #   可选静态资源
-│           ├── manifest.yaml               #   skill 级元数据
-│           └── .backup/                    #   升级时的备份目录（.gitignore）
-│               └── <timestamp>-v<version>/ #     上一个版本的快照
+│   └── <skill-key>/                        #   单一规范化标识，可包含路径层级（D-14）
+│       ├── SKILL.md                        #   每个 skill 一个目录
+│       ├── scripts/                        #   可选脚本目录
+│       ├── references/                     #   可选参考资料
+│       ├── assets/                         #   可选静态资源
+│       ├── manifest.yaml                   #   skill 级元数据
+│       └── .backup/                        #   升级时的备份目录（.gitignore）
+│           └── <timestamp>-v<version>/     #     上一个版本的快照
 │
 ├── cache/                                  # 缓存目录（.gitignore）
 │   ├── index.jsonl                         #   索引缓存
@@ -567,11 +567,12 @@ interface Dependency {
 ```
 
 **关键设计**：
+
 - 去掉 `versions/` 目录和 `latest` 软链接（简化版本管理）
 - `manifest.yaml` 只记录当前版本和上次升级前的备份信息
 - 升级时：当前内容 → `.backup/<timestamp>-v<old>/`，新内容 → skill 目录
 - `switch` 命令变为：从 `.backup/` 恢复某个备份
-- 命名空间（`<namespace>/<skill-name>`）避免不同来源的 skill 名称冲突（D-14）
+- 使用单一 SkillKey 避免不同来源的 skill 名称冲突（D-14）
 
 ### 5.2 tags.yaml 格式定义
 
@@ -605,16 +606,16 @@ mappings:
 
 ```yaml
 # === 基本信息 ===
-name: pdf-processing
-namespace: anthropics                    # 命名空间（D-14），全称: anthropics/pdf-processing
+name: anthropics/skills/skills/pdf-processing # 完整 SkillKey（D-14）
 description: Use this skill whenever the user wants to do anything with PDF
 
 # === 来源信息 ===
 source:
   type: github                           # github | local
-  repo: anthropics/skills                # GitHub owner/repo
-  path: skills/pdf-processing            # skill 在仓库中的路径
-  installed_via: cli                     # cli | init-scan
+  owner: anthropics                      # GitHub owner（原始来源保留）
+  repo: skills                           # GitHub repo（原始来源保留）
+  skillPath: skills/pdf-processing       # skill 在仓库中的路径（原始来源保留）
+  installedVia: cli                      # cli | init-scan
 
 # === 版本信息（简化版） ===
 current_version: "1.1.0"                 # 当前版本
@@ -735,8 +736,8 @@ metadata:                               # ★ 官方扩展容器
 
 | 字段 | manifest.yaml | skills-lock.json | 说明 |
 |------|:---:|:---:|------|
-| name / namespace / description | ✅ 主 | ❌ 不存 | manifest 是 skill 自描述 |
-| source (type/repo/path/commit) | ✅ 主 | ✅ 冗余 | manifest 记录来源，lock 记录精确 commit |
+| name / description | ✅ 主 | ❌ 不存 | `name` 是完整 SkillKey，manifest 是 skill 自描述 |
+| source (type/owner/repo/skillPath/commit) | ✅ 主 | ✅ 冗余 | manifest 保留完整 GitHub 原始来源，lock 记录精确 commit |
 | current_version | ✅ 主 | ✅ 冗余 | manifest 是真相源，lock 镜像 |
 | tags | ✅ 主 | ❌ 不存 | 标签由 tags.yaml 管理，manifest 记录声明 |
 | depends_on | ✅ 主 | ❌ 不存 | manifest 记录依赖声明 |
@@ -747,6 +748,7 @@ metadata:                               # ★ 官方扩展容器
 | last_backup | ✅ 主 | ❌ 不存 | 仅 manifest 记录（本地状态） |
 
 **同步规则**：
+
 1. **manifest.yaml 是 skill 级真相源**，lock 文件是全局镜像 + 补充字段
 2. 任何写操作先更新 manifest.yaml，再同步到 skills-lock.json
 3. 如果两者冲突，以 manifest.yaml 为准，lock 文件自动修正
@@ -781,6 +783,7 @@ metadata:                               # ★ 官方扩展容器
 > **决策来源**：D-19
 
 **核心要点**：
+
 - **单一活跃版本**：不保留多版本并存，扁平目录 + `.backup/`
 - **升级流程**：检查远程版本 → 备份当前版本到 `.backup/<timestamp>-v<old>/` → 下载新版本 → 更新 manifest.yaml + skills-lock.json → 提示重新 deploy
 - **远程版本判定优先级**：`metadata.version` → 顶层 `version` → Git tag → commit hash → "unknown"
@@ -795,6 +798,7 @@ metadata:                               # ★ 官方扩展容器
 > **详细设计**：[docs/design-sync-git.md](docs/design-sync-git.md)（含 §12 Git 仓库结构）
 
 **核心要点**：
+
 - **Git 同步**：`~/.skill-sync/` 整体是 Git 仓库，`sync push/pull` 操作
 - **提交信息格式**：`chore(skills): <action> <skill-name> [<detail>]`
 - **冲突解决策略**：`ours` / `theirs` / `manual` / `newer` / `skip`（默认 `manual`，可在 config.yaml 配置）
@@ -809,6 +813,7 @@ metadata:                               # ★ 官方扩展容器
 > **决策来源**：D-11
 
 **核心要点**：
+
 - **搜索 API**：`GET https://skills.sh/api/search?q={query}`，返回 JSON（含 `source`、`skill_id`、`name`、`description`、`stars`、`installs`）
 - **搜索结果到 install 参数映射**：`source` → `owner`，`skill_id` → `--skill <name>`，`repo` 需推断（优先用 `skill_id` 尝试，失败后 Trees API 搜索）
 - **安装流程**：解析来源 → Trees API 发现 SKILL.md → 获取 tree SHA + commit hash → 下载文件 → 复制到中央仓库 → 生成 manifest.yaml → 更新 skills-lock.json
@@ -909,7 +914,6 @@ skill-sync import <path> [options]
 <path>                  # 本地 skill 目录路径（必须含 SKILL.md）
 
 选项:
--n, --namespace <name>  # 命名空间（默认: local）
 -a, --agents <list>     # 导入后分发到指定 Agent（逗号分隔）
 --deploy <type>         # 部署方式: symlink | copy（默认: symlink）
 --no-deploy             # 只导入到中央仓库，不自动分发
@@ -917,17 +921,16 @@ skill-sync import <path> [options]
 
 示例:
 skill-sync import ~/my-skills/pdf-tools
-skill-sync import ~/my-skills/pdf-tools --namespace myname -a claude-code
+skill-sync import ~/my-skills/pdf-tools -a claude-code
 ```
 
-**命名空间分配规则**：
+**SkillKey 分配规则**：
 
-| 来源 | 命名空间 | 示例 |
+| 来源 | SkillKey | 示例 |
 |------|---------|------|
-| GitHub 安装 | GitHub `owner` | `anthropics/pdf-processing` |
-| 本地导入（默认） | `local` | `local/my-skill` |
-| 本地导入（指定） | 用户指定 | `myname/my-skill` |
-| init 扫描导入 | 原始所在 Agent 目录名 | `claude-code/imported-skill` |
+| GitHub 安装 | `<owner>/<repo>/<skill-path>` | `anthropics/skills/skills/pdf-processing` |
+| 本地导入 | 来源根目录下的规范化相对路径 | `my-skills/pdf-tools` |
+| init 扫描导入 | 发现的 skill 目录名；同名且内容不同则拒绝自动导入 | `imported-skill` |
 
 #### `skill-sync install`
 
@@ -959,7 +962,7 @@ skill-sync install ./my-local-skill --deploy copy
 ```bash
 skill-sync remove <name> [options]
 
-<name>                  # skill 名称（支持命名空间: anthropics/pdf-processing）
+<name>                  # 完整 SkillKey（如 anthropics/skills/skills/pdf-processing）
 
 选项:
 --all                   # 删除中央仓库 + 所有 Agent 下的分发
@@ -1001,11 +1004,11 @@ skill-sync list [options]
 示例输出:
 $ skill-sync list
 
-  NAMESPACE/NAME                    VERSION   DEPLOY    AGENTS
+  SKILL KEY                         VERSION   DEPLOY    AGENTS
   ────────────────────────────────  ────────  ────────  ──────────────────
-  anthropics/pdf-processing         1.1.0     symlink   claude-code, cursor
-  vercel-labs/web-design            1.0.0     copy      claude-code
-  local/my-custom-skill             0.0.0     symlink   cursor, opencode
+  anthropic/skills/skills/pdf-processing  1.1.0  symlink  claude-code, cursor
+  vercel-labs/agent-skills/web-design      1.0.0  copy     claude-code
+  my-skills/my-custom-skill                0.0.0  symlink  cursor, opencode
 ```
 
 #### `skill-sync search`
@@ -1032,12 +1035,12 @@ skill-sync search "web design" --remote --limit 5
 ```bash
 skill-sync info <name>
 
-<name>                  # skill 名称（支持命名空间）
+<name>                  # 完整 SkillKey
 
 示例输出:
-$ skill-sync info anthropics/pdf-processing
+$ skill-sync info anthropics/skills/skills/pdf-processing
 
-  anthropics/pdf-processing
+  anthropics/skills/skills/pdf-processing
   ════════════════════════════════════════════════════
 
   Description:  Use this skill whenever the user wants to do anything with PDF
@@ -1320,7 +1323,8 @@ skill-sync ui [options]
 > **详细设计**：[docs/design-distribution.md](docs/design-distribution.md)
 
 **核心要点**：
-- **目标目录命名**：默认 `<skill-name>`；同名冲突时 `<namespace>-<skill-name>`；用户可配置覆盖
+
+- **目标目录命名**：默认使用完整 `<skill-key>`，保留层级以避免同名覆盖
 - **分发模式**：macOS/Linux 默认 symlink，Windows 默认 **junction**（不需要管理员权限），junction 失败时降级为 copy
 - **分发流程**：检测目标存在 → 判断是否被手动修改（source_hash）→ 创建/覆盖/提示
 - **增量同步**（copy 模式）：只复制新增和变更文件，删除多余文件
@@ -1335,14 +1339,17 @@ skill-sync ui [options]
 > **详细设计**：[docs/design-security-errors-deps.md](docs/design-security-errors-deps.md)
 
 ### 安全设计
+
 - 最小权限、敏感配置分离（`secrets.yaml`）、Skill 内容不记录日志、执行前确认
 - source_hash 校验、路径安全校验（sanitize）、路径重叠检测、远程代码审计、Lazy Token
 
 ### 错误处理
+
 - **退出码**：0 成功 / 1 通用错误 / 2 参数错误 / 3 未初始化 / 4 网络错误 / 5 文件系统错误 / 6 冲突错误 / 7 依赖缺失 / 8 部分失败
 - **错误恢复**：安装回滚、升级回滚、lock 重建、manifest 重建、软链接修复
 
 ### 依赖管理
+
 - **声明位置**：`manifest.yaml` + SKILL.md frontmatter `metadata.depends_on`
 - **处理逻辑**：安装时检查依赖、删除时检查反向依赖、SemVer range 匹配、传递性依赖（深度限制 10 层）、循环依赖检测
 - **简化策略**：仅警告级别，不强制阻止，`--ignore-deps` 可跳过
@@ -1356,6 +1363,7 @@ skill-sync ui [options]
 > **决策来源**：D-08
 
 **核心要点**：
+
 - **Git 仓库范围**：`~/.skill-sync/` 整体是一个 Git 仓库
 - **同步**：`skills/`、`config.yaml`、`skills-lock.json`、`tags.yaml`
 - **不同步**（.gitignore）：`cache/`、`temp/`、`secrets.yaml`、`skills/*/.backup/`、OS/编辑器/Node.js 文件
@@ -1368,6 +1376,7 @@ skill-sync ui [options]
 > **详细设计**：[docs/design-testing.md](docs/design-testing.md)
 
 **核心要点**：
+
 - **灰度测试约束**：禁止动用用户真实 skill 目录，使用 `SKILL_SYNC_HOME` + `SKILL_SYNC_AGENTS_DIR` 环境变量重定向到模拟沙箱
 - **测试沙箱**：`test-env/.skill-sync/` + `test-env/agents/`，集成测试自动设置到 `os.tmpdir()`
 - **框架**：Vitest + msw (HTTP mock) + simple-git (Git mock)
@@ -1381,10 +1390,12 @@ skill-sync ui [options]
 > **详细设计**：[docs/reference.md](docs/reference.md)
 
 ### 参考项目
+
 - **TeleAgent skill-sync**：TypeScript + Commander.js 小型实现，直接参考 agents/scanner/deploy/github/source/dependencies/post-install/manifest/lock 模块
 - **Skiller**：Tauri + Rust 桌面应用，UI 交互逻辑参考（不采用技术栈）
 
 ### 技术栈
+
 | 维度 | 选型 |
 |------|------|
 | 语言 | TypeScript / Node.js (≥ 20.0.0) |
@@ -1396,6 +1407,7 @@ skill-sync ui [options]
 | 测试框架 | Vitest |
 
 ### 决策记录
+
 D-01~D-21 全部决策详见 [docs/reference.md](docs/reference.md)。
 
 ---
@@ -1459,11 +1471,13 @@ D-01~D-21 全部决策详见 [docs/reference.md](docs/reference.md)。
 > **文档结束（v1.2.1）**
 >
 > **v1.2.0 → v1.2.1 变更**：
+>
 > - 文档拆分：将 §6 版本管理、§7 同步机制、§8 skills.sh 集成、§10 分发机制、§11 安全设计、§12 错误处理、§13 依赖管理、§14 Git 策略、§15 测试策略、§16 参考项目、§17 技术选型、§18 决策记录、§20 引用来源、附录 拆分到 `docs/` 目录下 7 个外部文档
 > - 主 PRD 保留：§1 产品概述、§2 需求分析、§3 技术决策总览、§4 系统架构、§5 数据模型、§9 CLI 命令规范、§15 路线图
 > - 外部文档通过摘要 + 链接引用，开发时按需加载
 >
 > **v1.1 → v1.2.0 变更摘要**：
+>
 > - 简化版本管理：去掉多版本并存，改为备份 + 升级模式（D-19）
 > - 删除项目级管理（D-09）
 > - 删除 `create`/`add`/`bump` 命令，`bump` 合并到 `update`（D-16）
@@ -1475,7 +1489,7 @@ D-01~D-21 全部决策详见 [docs/reference.md](docs/reference.md)。
 > - Markdown 渲染确定为 md-editor-v3 MdPreview 组件
 > - 新增核心类型定义、tags.yaml 格式定义
 > - 新增错误处理与异常场景、依赖管理逻辑、Git 仓库结构策略、测试策略
-> - 使用命名空间避免名称冲突（D-14）
+> - 使用单一 SkillKey 避免名称冲突（D-14）
 > - `secrets.yaml` 分离敏感信息（D-08）
 > - 移除 WebDAV 相关内容（仅保留 Git 同步）
 > - 先不实现自动同步（D-13）

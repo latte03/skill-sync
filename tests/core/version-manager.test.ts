@@ -31,7 +31,7 @@ describe('checkForUpdate', () => {
     );
 
     const ctx = createTestContext();
-    installLocalSkill(ctx, path.join(testDir, 'test-skill'), 'local', {
+    installLocalSkill(ctx, path.join(testDir, 'test-skill'), {
       noDeploy: true,
       ignoreDeps: true,
     });
@@ -43,7 +43,7 @@ describe('checkForUpdate', () => {
 
   it('本地 skill 返回 isLocal=true', async () => {
     const ctx = createTestContext();
-    const result = await checkForUpdate(ctx, 'local/test-skill');
+    const result = await checkForUpdate(ctx, 'test-skill');
     expect(result.isLocal).toBe(true);
     expect(result.hasUpdate).toBe(false);
     expect(result.remoteVersion).toBeNull();
@@ -75,7 +75,7 @@ describe('备份与恢复', () => {
     );
 
     const ctx = createTestContext();
-    installLocalSkill(ctx, path.join(testDir, 'my-skill'), 'local', {
+    installLocalSkill(ctx, path.join(testDir, 'my-skill'), {
       noDeploy: true,
       ignoreDeps: true,
     });
@@ -87,7 +87,7 @@ describe('备份与恢复', () => {
 
   it('createBackup 创建备份目录', () => {
     const ctx = createTestContext();
-    const backupPath = createBackup(ctx, 'local/my-skill');
+    const backupPath = createBackup(ctx, 'my-skill');
 
     expect(fs.existsSync(backupPath)).toBe(true);
     expect(fs.existsSync(path.join(backupPath, 'SKILL.md'))).toBe(true);
@@ -96,34 +96,34 @@ describe('备份与恢复', () => {
 
   it('createBackup 更新 manifest.lastBackup', () => {
     const ctx = createTestContext();
-    createBackup(ctx, 'local/my-skill');
+    createBackup(ctx, 'my-skill');
 
-    const manifest = readManifest('local', 'my-skill');
+    const manifest = readManifest('my-skill');
     expect(manifest.lastBackup).toBeDefined();
     expect(manifest.lastBackup?.fromVersion).toBe('1.0.0');
   });
 
   it('listBackups 返回备份列表', () => {
     const ctx = createTestContext();
-    createBackup(ctx, 'local/my-skill');
+    createBackup(ctx, 'my-skill');
 
-    const backups = listBackups('local/my-skill');
+    const backups = listBackups('my-skill');
     expect(backups.length).toBe(1);
     expect(backups[0]!.version).toBe('1.0.0');
   });
 
   it('listSkillBackups 返回带 ID 的备份列表', () => {
     const ctx = createTestContext();
-    createBackup(ctx, 'local/my-skill');
+    createBackup(ctx, 'my-skill');
 
-    const backups = listSkillBackups('local/my-skill');
+    const backups = listSkillBackups('my-skill');
     expect(backups.length).toBe(1);
     expect(backups[0]!.id).toBe(1);
     expect(backups[0]!.version).toBe('1.0.0');
   });
 
   it('listSkillBackups 无备份时返回空数组', () => {
-    const backups = listSkillBackups('local/my-skill');
+    const backups = listSkillBackups('my-skill');
     expect(backups).toEqual([]);
   });
 
@@ -131,22 +131,22 @@ describe('备份与恢复', () => {
     const ctx = createTestContext();
 
     // 1. 创建备份
-    createBackup(ctx, 'local/my-skill');
+    createBackup(ctx, 'my-skill');
 
     // 2. 修改 skill 内容
-    const repoPath = skillRepoPath('local', 'my-skill');
+    const repoPath = skillRepoPath('my-skill');
     fs.writeFileSync(
       path.join(repoPath, 'SKILL.md'),
       '---\nname: my-skill\nversion: 2.0.0\ndescription: Updated\n---\n\n# My Skill v2\n',
     );
 
     // 3. 验证已修改
-    const modifiedManifest = readManifest('local', 'my-skill');
+    const modifiedManifest = readManifest('my-skill');
     // manifest 还没更新（只有文件内容变了）
     expect(modifiedManifest.currentVersion).toBe('1.0.0');
 
     // 4. 恢复
-    const result = restoreFromBackup(ctx, 'local/my-skill');
+    const result = restoreFromBackup(ctx, 'my-skill');
     expect(result.version).toBe('1.0.0');
 
     // 5. 验证文件内容已恢复
@@ -155,11 +155,11 @@ describe('备份与恢复', () => {
     expect(content).not.toContain('My Skill v2');
 
     // 6. 验证 manifest 版本已恢复
-    const restoredManifest = readManifest('local', 'my-skill');
+    const restoredManifest = readManifest('my-skill');
     expect(restoredManifest.currentVersion).toBe('1.0.0');
 
     // 7. 验证 lock 版本已恢复
-    const entry = getLockEntry('local/my-skill');
+    const entry = getLockEntry('my-skill');
     expect(entry?.version).toBe('1.0.0');
   });
 
@@ -167,22 +167,22 @@ describe('备份与恢复', () => {
     const ctx = createTestContext();
 
     // 创建两个备份
-    createBackup(ctx, 'local/my-skill');
+    createBackup(ctx, 'my-skill');
 
     // 修改版本后创建第二个备份
-    const repoPath = skillRepoPath('local', 'my-skill');
-    const manifest = readManifest('local', 'my-skill');
+    const repoPath = skillRepoPath('my-skill');
+    const manifest = readManifest('my-skill');
     manifest.currentVersion = '2.0.0';
-    writeManifest('local', 'my-skill', manifest);
+    writeManifest('my-skill', manifest);
 
-    const entry = getLockEntry('local/my-skill');
+    const entry = getLockEntry('my-skill');
     entry!.version = '2.0.0';
-    setLockEntry('local/my-skill', entry!);
+    setLockEntry('my-skill', entry!);
 
-    createBackup(ctx, 'local/my-skill');
+    createBackup(ctx, 'my-skill');
 
     // 确认有两个备份
-    const backups = listSkillBackups('local/my-skill');
+    const backups = listSkillBackups('my-skill');
     expect(backups.length).toBe(2);
 
     // ID 1 = 最新备份 (v2.0.0), ID 2 = 最旧备份 (v1.0.0)
@@ -192,23 +192,23 @@ describe('备份与恢复', () => {
     expect(backups[1]!.version).toBe('1.0.0');
 
     // 恢复 ID 1 (v2.0.0)
-    const result = restoreFromBackup(ctx, 'local/my-skill', 1);
+    const result = restoreFromBackup(ctx, 'my-skill', 1);
     expect(result.version).toBe('2.0.0');
   });
 
   it('restoreFromBackup 无备份时抛出错误', () => {
     const ctx = createTestContext();
     expect(() => {
-      restoreFromBackup(ctx, 'local/my-skill');
+      restoreFromBackup(ctx, 'my-skill');
     }).toThrow('无可用备份');
   });
 
   it('restoreFromBackup 不存在的备份 ID 抛出错误', () => {
     const ctx = createTestContext();
-    createBackup(ctx, 'local/my-skill');
+    createBackup(ctx, 'my-skill');
 
     expect(() => {
-      restoreFromBackup(ctx, 'local/my-skill', 999);
+      restoreFromBackup(ctx, 'my-skill', 999);
     }).toThrow('备份 ID 999 不存在');
   });
 });

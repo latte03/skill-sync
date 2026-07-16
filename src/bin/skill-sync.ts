@@ -42,7 +42,6 @@ program
   .option('--git', '初始化 Git 仓库')
   .option('--scan', '扫描并导入散落 skill')
   .option('--link', '导入时替换原位置为 symlink')
-  .option('--namespace <name>', '导入散落 skill 的命名空间', 'local')
   .option('-y, --yes', '跳过交互提示')
   .action(async (opts) => {
     try {
@@ -193,13 +192,11 @@ program
 program
   .command('import [path]')
   .description('导入散落 skill 到中央仓库')
-  .option('-n, --namespace <name>', '命名空间', 'local')
   .option('-a, --agents <agents>', '导入后分发到指定 Agent（逗号分隔）')
   .option('--copy', '使用复制模式（默认 symlink）')
   .option('--no-deploy', '只导入到中央仓库，不自动分发')
   .option('-y, --yes', '跳过确认提示')
   .action((inputPath: string | undefined, opts: {
-    namespace?: string;
     agents?: string;
     copy?: boolean;
     deploy?: boolean;
@@ -207,7 +204,6 @@ program
   }) => {
     try {
       importCommand(inputPath, {
-        namespace: opts.namespace,
         agents: opts.agents,
         deploy: opts.copy ? 'copy' : 'symlink',
         noDeploy: opts.deploy === false,

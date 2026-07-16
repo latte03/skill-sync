@@ -10,11 +10,10 @@
 
 | 场景 | 目标目录名 | 示例 |
 |------|-----------|------|
-| 默认（无冲突） | `<skill-name>` | `~/.claude/skills/pdf-processing/` |
-| 同名冲突（不同命名空间） | `<namespace>-<skill-name>` | `~/.claude/skills/anthropics-pdf-processing/` |
-| 用户配置覆盖 | `config.yaml` 中自定义 | `config.yaml → agents.claude-code.alias: { anthropics/pdf-processing: pdf }` |
+| 默认 | 完整 `<skill-key>` | `~/.claude/skills/anthropics/skills/skills/pdf-processing/` |
+| 相同 SkillKey 已存在 | 判定为同一目标，按 `--force` 与修改检测处理 | 不会按最后一段名称猜测来源 |
 
-**冲突检测**：deploy 时检测目标目录是否已被其他 namespace 的同名 skill 占用。若是，自动切换为 `<namespace>-<skill-name>` 格式并警告。
+**冲突检测**：业务层始终传递完整 SkillKey，不解析其中的 `/`。不同 SkillKey 映射到不同层级目录；已有同一目标时，deploy 会先识别其是否为受管链接或已被手动修改。
 
 ## 10.2 链接策略与平台适配
 

@@ -71,14 +71,12 @@
           <!-- 头部：monogram + 名称 + 状态 -->
           <header class="card-head">
             <div class="monogram" :class="skill.managed ? 'mono--managed' : 'mono--unmanaged'">
-              {{ skill.skillName.slice(0, 2).toUpperCase() }}
+              {{ skill.name.split('/').at(-1)?.slice(0, 2).toUpperCase() }}
             </div>
 
             <div class="title-block">
               <h3 class="skill-name" :title="skill.name">{{ skill.name }}</h3>
-              <div class="namespace-row">
-                <code v-if="skill.namespace" class="namespace-tag">{{ skill.namespace }}</code>
-                <span v-if="skill.namespace" class="dot-sep">·</span>
+              <div class="metadata-row">
                 <span class="version-badge">v{{ skill.version }}</span>
               </div>
             </div>
@@ -376,27 +374,12 @@ onMounted(() => refresh());
   white-space: nowrap;
 }
 
-.namespace-row {
+.metadata-row {
   display: flex;
   align-items: center;
   gap: 6px;
   font-size: 12px;
   color: var(--text-3);
-}
-
-.namespace-tag {
-  font-family: 'SF Mono', Monaco, ui-monospace, monospace;
-  font-size: 11.5px;
-  color: var(--text-2);
-  background: var(--surface-2);
-  border: 1px solid var(--border);
-  padding: 1px 6px;
-  border-radius: 4px;
-}
-
-.dot-sep {
-  color: var(--text-3);
-  opacity: 0.6;
 }
 
 .version-badge {

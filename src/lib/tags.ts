@@ -67,18 +67,15 @@ export function addTag(name: string, tag: string): void {
   writeTagsFile(tagsFile);
 
   // 更新 manifest.yaml
-  const [namespace, skillName] = name.split('/');
-  if (namespace && skillName) {
-    try {
-      const manifest = readManifest(namespace, skillName);
-      if (!manifest.tags) manifest.tags = [];
-      if (!manifest.tags.includes(tag)) {
-        manifest.tags.push(tag);
-        writeManifest(namespace, skillName, manifest);
-      }
-    } catch {
-      // manifest 可能不存在
+  try {
+    const manifest = readManifest(name);
+    if (!manifest.tags) manifest.tags = [];
+    if (!manifest.tags.includes(tag)) {
+      manifest.tags.push(tag);
+      writeManifest(name, manifest);
     }
+  } catch {
+    // manifest 可能不存在
   }
 }
 
@@ -97,20 +94,17 @@ export function removeTag(name: string, tag: string): void {
   writeTagsFile(tagsFile);
 
   // 更新 manifest.yaml
-  const [namespace, skillName] = name.split('/');
-  if (namespace && skillName) {
-    try {
-      const manifest = readManifest(namespace, skillName);
-      if (manifest.tags) {
-        manifest.tags = manifest.tags.filter(t => t !== tag);
-        if (manifest.tags.length === 0) {
-          delete manifest.tags;
-        }
-        writeManifest(namespace, skillName, manifest);
+  try {
+    const manifest = readManifest(name);
+    if (manifest.tags) {
+      manifest.tags = manifest.tags.filter(t => t !== tag);
+      if (manifest.tags.length === 0) {
+        delete manifest.tags;
       }
-    } catch {
-      // manifest 可能不存在
+      writeManifest(name, manifest);
     }
+  } catch {
+    // manifest 可能不存在
   }
 }
 
@@ -133,11 +127,8 @@ export function listSkillsByTag(tag: string): string[] {
  * 获取 skill 的所有标签
  */
 export function getSkillTags(name: string): string[] {
-  const [namespace, skillName] = name.split('/');
-  if (!namespace || !skillName) return [];
-
   try {
-    const manifest = readManifest(namespace, skillName);
+    const manifest = readManifest(name);
     return manifest.tags ?? [];
   } catch {
     return [];

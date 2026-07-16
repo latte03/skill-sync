@@ -31,7 +31,7 @@
 |------|----------|-----------|
 | 配置格式 | JSON (manifest.json) | YAML (manifest.yaml + config.yaml) |
 | 版本管理 | 无 | 备份 + 恢复 |
-| 命名空间 | 无 | ✅ `<namespace>/<skill-name>` |
+| SkillKey | 无 | ✅ 单一不透明标识；GitHub 来源为 `<owner>/<repo>/<skill-path>` |
 | skills.sh | 无 | ✅ 搜索 API 集成 |
 | 标签系统 | 无 | ✅ tags.yaml |
 | 同步 | 无 | ✅ Git push/pull |
@@ -283,11 +283,11 @@ skill-sync/
 |------|------|
 | **决策** | 先不实现自动同步，用户手动执行 `sync` 命令 |
 
-### D-14: Skill 名称冲突的处理策略 ✅
+### D-14: SkillKey 的规范与冲突策略 ✅
 
 | 项目 | 内容 |
 |------|------|
-| **决策** | 使用命名空间（如 `vercel-labs/pdf-processing`），目录结构为 `skills/<namespace>/<skill-name>/` |
+| **决策** | 业务层只传递一个不拆分的 `SkillKey`。GitHub skill 使用 `<owner>/<repo>/<skill-path>`；本地 skill 使用相对来源根目录的规范化路径。目录为 `skills/<skill-key>/`。 |
 | **影响** | §5.1 目录结构 |
 
 ### D-16: `bump` vs `update` 合并 ✅
@@ -363,7 +363,7 @@ skill-sync/
 | **Lock File** | 全局锁定文件（skills-lock.json） |
 | **Distribution** | 将 Skill 部署到 Agent 目标目录的过程 |
 | **Source of Truth** | 数据的真实唯一来源（文件系统目录树） |
-| **Namespace** | 命名空间，用于区分不同来源的同名 skill（D-14） |
+| **SkillKey** | Skill 的唯一、不透明标识；业务层不再拆为 namespace 和 skillName（D-14） |
 | **Managed** | Agent 下的 skill 纳入管理（受 update 影响） |
 | **Unmanaged** | Agent 下的 skill 不纳入管理（undeploy 后的副本） |
 

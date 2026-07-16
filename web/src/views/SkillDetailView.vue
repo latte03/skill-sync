@@ -45,9 +45,6 @@
               <n-descriptions-item label="分发模式">
                 {{ detail.skill.deployMode }}
               </n-descriptions-item>
-              <n-descriptions-item v-if="detail.skill.namespace" label="命名空间">
-                {{ detail.skill.namespace }}
-              </n-descriptions-item>
             </n-descriptions>
 
             <n-divider v-if="detail.backups.length > 0" />

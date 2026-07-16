@@ -7,7 +7,7 @@
  * - 从 GitHub 仓库下载 skill（Trees API + raw 下载）
  * - 从本地路径导入 skill
  * - 发现仓库中的多个 skill
- * - 安装到中央仓库 skills/<namespace>/<skillName>/
+ * - 安装到中央仓库 skills/<name>/（name 可含路径层级，如 anthropics/pdf-processing）
  * - 生成 manifest.yaml
  * - 更新 skills-lock.json
  * - 可选：分发到 Agent 目录
@@ -17,8 +17,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { parseSource } from '../lib/source.js';
-import { parseFrontmatter, extractVersion, extractDependencies } from '../lib/frontmatter.js';
-import { sanitizeMetadata, sanitizeName } from '../lib/sanitize.js';
+import { parseFrontmatter, extractVersion, extractDependencies, hasXmlBrackets } from '../lib/frontmatter.js';
+import { sanitizeMetadata, sanitizeName, isPathSafe } from '../lib/sanitize.js';
 import {
   getRepoTree,
   findSkillMdPaths,
@@ -29,7 +29,8 @@ import {
 } from '../lib/github.js';
 import { createManifestFromFrontmatter, writeManifest } from '../lib/manifest.js';
 import { setLockEntry, hasLockEntry, getAllLockSkillNames } from '../lib/lock.js';
-import { skillRepoPath } from '../lib/paths.js';
+import { skillRepoPath, skillsDirPath } from '../lib/paths.js';
+import { createGitHubSkillKey } from '../lib/skill-key.js';
 import { extractPackageDependencies, installDependencies, checkSkillDependencies } from '../lib/dependencies.js';
 import { detectInstalledAgents } from '../lib/agents.js';
 import { copyDirRecursive } from '../lib/fs-utils.js';
@@ -105,7 +106,7 @@ export function discoverLocalSkills(dir: string, maxDepth = 5): DiscoveredSkill[
 
 /**
  * 从 SKILL.md 构建 DiscoveredSkill
- * 
+ *
  * 对于本地导入的 skill，使用 relativePath 作为 name 的默认值，保持嵌套目录结构
  * SKILL.md 中的 name 字段仅作为描述性信息，不用于路径结构
  */
@@ -218,8 +219,13 @@ export async function downloadGitHubSkill(
   // 获取 skill 目录下所有文件
   const filePaths = getSkillFilePaths(tree.tree, skillPath);
 
-  // 创建目标目录
+  // 新版本是完整快照：先清空旧内容，避免上游已删除的文件残留。
+  // `.backup` 由更新流程维护，不能被远程快照覆盖或删除。
   fs.mkdirSync(destDir, { recursive: true });
+  for (const entry of fs.readdirSync(destDir, { withFileTypes: true })) {
+    if (entry.name === '.backup') continue;
+    fs.rmSync(path.join(destDir, entry.name), { recursive: true, force: true });
+  }
 
   // 下载每个文件
   for (const filePath of filePaths) {
@@ -250,7 +256,6 @@ export async function downloadGitHubSkill(
 export function installLocalSkill(
   ctx: SkillSyncContext,
   localPath: string,
-  namespace: string,
   opts?: InstallOpts,
 ): InstallResult {
   const resolved = path.resolve(localPath);
@@ -276,7 +281,7 @@ export function installLocalSkill(
   }
 
   const skill = skills[0]!;
-  return installFromDiscovered(ctx, skill, namespace, {
+  return installFromDiscovered(ctx, skill, {
     type: 'local',
     installedVia: 'cli',
   }, opts);
@@ -319,41 +324,65 @@ export async function installGitHubSkill(
     throw new Error(`发现多个 skill: ${names}\n请使用 -s/--skill 指定要安装的 skill`);
   }
 
-  const namespace = parsed.owner!;
-  const skillName = sanitizeName(targetSkill.name);
-  const repoPath = skillRepoPath(namespace, skillName);
+  const canonicalSkillKey = createGitHubSkillKey({
+    owner: parsed.owner!,
+    repo: parsed.repo!,
+    skillPath: targetSkill.dir || undefined,
+  });
+  const skillName = opts?.targetKey ?? canonicalSkillKey;
+  const repoPath = skillRepoPath(skillName);
+  assertSafeSkillRepoPath(repoPath);
+
+  if (hasXmlBrackets(targetSkill.metadata ?? {})) {
+    throw new Error(`SKILL.md frontmatter 包含不允许的 XML 尖括号: ${targetSkill.name}`);
+  }
 
   // 下载到中央仓库
   ctx.logger.debug(`  下载到: ${repoPath}`);
 
   if (ctx.dryRun) {
-    ctx.logger.info(`[dry-run] 将安装 ${namespace}/${skillName}`);
+    ctx.logger.info(`[dry-run] 将安装 ${skillName}`);
     return {
-      name: `${namespace}/${skillName}`,
-      namespace,
+      name: skillName,
       version: extractVersion(targetSkill.metadata ?? {}) ?? '0.0.0',
-      source: { type: 'github', repo: `${parsed.owner}/${parsed.repo}`, path: targetSkill.dir || undefined, installedVia: 'cli' },
+      source: {
+        type: 'github',
+        owner: parsed.owner!,
+        repo: parsed.repo!,
+        skillPath: targetSkill.dir || undefined,
+        installedVia: 'cli',
+      },
       deployed: [],
     };
   }
 
-  const { commitHash, treeSha } = await downloadGitHubSkill(
-    ctx,
-    parsed,
-    targetSkill.dir,
-    repoPath,
-  );
+  const stagingPath = `${repoPath}.staging-${process.pid}-${Date.now()}`;
+  let commitHash: string;
+  let treeSha: string | null;
+  try {
+    ({ commitHash, treeSha } = await downloadGitHubSkill(
+      ctx,
+      parsed,
+      targetSkill.dir,
+      stagingPath,
+    ));
+    replaceSkillSnapshot(repoPath, stagingPath);
+  } catch (error) {
+    fs.rmSync(stagingPath, { recursive: true, force: true });
+    throw error;
+  }
 
   // 生成 manifest
   const frontmatterData = targetSkill.metadata ?? {};
   const skillSource: SkillSource = {
     type: 'github',
-    repo: `${parsed.owner}/${parsed.repo}`,
-    path: targetSkill.dir || undefined,
+    owner: parsed.owner!,
+    repo: parsed.repo!,
+    skillPath: targetSkill.dir || undefined,
     installedVia: 'cli',
   };
 
-  return finalizeInstall(ctx, repoPath, namespace, skillName, frontmatterData, skillSource, opts, {
+  return finalizeInstall(ctx, repoPath, skillName, frontmatterData, skillSource, opts, {
     commit: commitHash,
     treeSha,
   });
@@ -367,18 +396,24 @@ export async function installGitHubSkill(
 function installFromDiscovered(
   ctx: SkillSyncContext,
   skill: DiscoveredSkill,
-  namespace: string,
   source: SkillSource,
   opts?: InstallOpts,
 ): InstallResult {
   const skillName = sanitizeName(skill.name);
-  const repoPath = skillRepoPath(namespace, skillName);
+  const repoPath = skillRepoPath(skillName);
+  assertSafeSkillRepoPath(repoPath);
+
+  if (hasXmlBrackets(skill.metadata ?? {})) {
+    throw new Error(`SKILL.md frontmatter 包含不允许的 XML 尖括号: ${skillName}`);
+  }
+  if (pathsOverlap(skill.dir, repoPath)) {
+    throw new Error(`拒绝将 skill 安装到自身目录: ${skill.dir}`);
+  }
 
   if (ctx.dryRun) {
-    ctx.logger.info(`[dry-run] 将安装 ${namespace}/${skillName}`);
+    ctx.logger.info(`[dry-run] 将安装 ${skillName}`);
     return {
-      name: `${namespace}/${skillName}`,
-      namespace,
+      name: skillName,
       version: extractVersion(skill.metadata ?? {}) ?? '0.0.0',
       source,
       deployed: [],
@@ -389,7 +424,7 @@ function installFromDiscovered(
   fs.mkdirSync(repoPath, { recursive: true });
   copyDirRecursive(skill.dir, repoPath, ['.backup']);
 
-  return finalizeInstall(ctx, repoPath, namespace, skillName, skill.metadata ?? {}, source, opts);
+  return finalizeInstall(ctx, repoPath, skillName, skill.metadata ?? {}, source, opts);
 }
 
 /**
@@ -398,22 +433,21 @@ function installFromDiscovered(
 function finalizeInstall(
   ctx: SkillSyncContext,
   repoPath: string,
-  namespace: string,
   skillName: string,
   frontmatterData: Record<string, unknown>,
   source: SkillSource,
   opts?: InstallOpts,
   remote?: { commit?: string; treeSha?: string | null },
 ): InstallResult {
-  const fullName = `${namespace}/${skillName}`;
+  const fullName = skillName;
 
   // 检查是否已安装
-  if (hasLockEntry(fullName)) {
+  if (hasLockEntry(fullName) && !opts?.replaceExisting) {
     ctx.logger.debug(`  ${fullName} 已存在，将更新`);
   }
 
   // 生成 manifest
-  const manifest = createManifestFromFrontmatter(frontmatterData, namespace, skillName, source);
+  const manifest = createManifestFromFrontmatter(frontmatterData, skillName, source);
   const version = extractVersion(frontmatterData) ?? '0.0.0';
   manifest.currentVersion = version;
   manifest.initialVersion = version;
@@ -424,15 +458,17 @@ function finalizeInstall(
     manifest.dependsOn = deps;
   }
 
-  writeManifest(namespace, skillName, manifest);
+  writeManifest(skillName, manifest);
 
   // 更新 lock
   const lockEntry: LockEntry = {
     source: {
       type: source.type,
+      owner: source.owner,
       repo: source.repo,
-      path: source.path,
+      skillPath: source.skillPath,
       commit: remote?.commit,
+      installedVia: source.installedVia,
     },
     version,
     installedAt: new Date().toISOString(),
@@ -474,7 +510,6 @@ function finalizeInstall(
 
   return {
     name: fullName,
-    namespace,
     version,
     source,
     deployed,
@@ -497,4 +532,28 @@ function isEmptyDependenciesSafe(deps: unknown): boolean {
   if (!deps || typeof deps !== 'object') return true;
   const obj = deps as Record<string, unknown>;
   return Object.values(obj).every(arr => !Array.isArray(arr) || arr.length === 0);
+}
+
+function assertSafeSkillRepoPath(repoPath: string): void {
+  if (!isPathSafe(repoPath, skillsDirPath())) {
+    throw new Error(`SkillKey 对应的存储路径不安全: ${repoPath}`);
+  }
+}
+
+function pathsOverlap(left: string, right: string): boolean {
+  const a = path.resolve(left);
+  const b = path.resolve(right);
+  return a === b || a.startsWith(b + path.sep) || b.startsWith(a + path.sep);
+}
+
+/** Replace downloaded content only after the complete remote snapshot is available. */
+function replaceSkillSnapshot(repoPath: string, stagingPath: string): void {
+  const preservedBackup = path.join(path.dirname(repoPath), `.${path.basename(repoPath)}.backup-${process.pid}-${Date.now()}`);
+  const backupPath = path.join(repoPath, '.backup');
+  const hasBackup = fs.existsSync(backupPath);
+
+  if (hasBackup) fs.renameSync(backupPath, preservedBackup);
+  fs.rmSync(repoPath, { recursive: true, force: true });
+  fs.renameSync(stagingPath, repoPath);
+  if (hasBackup) fs.renameSync(preservedBackup, path.join(repoPath, '.backup'));
 }

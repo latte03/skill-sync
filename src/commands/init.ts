@@ -21,8 +21,9 @@ import { writeConfig, writeSecrets, getDefaultConfig } from '../config.js';
 import { readLock, writeLock } from '../lib/lock.js';
 import { LOCKFILE_VERSION, getCliVersion } from '../lib/constants.js';
 import { detectInstalledAgents, getAgents, getAgentDisplayName } from '../lib/agents.js';
-import { scanAllAgents, filterUnmanaged, groupBySkillName } from '../core/scanner.js';
-import { importSkill } from '../core/skill-manager.js';
+import { scanAllAgents, filterUnmanaged } from '../core/scanner.js';
+import { computeSourceHash, importSkill } from '../core/skill-manager.js';
+import { normalizeSkillKey } from '../lib/skill-key.js';
 import { createContext } from '../core/context.js';
 import type { LockFile } from '../lib/types.js';
 import type { SkillSyncContext } from '../core/context.js';
@@ -34,8 +35,6 @@ export interface InitOpts {
   scan?: boolean;
   /** 导入散落 skill 时是否替换为 symlink */
   link?: boolean;
-  /** 命名空间（导入散落 skill 时使用） */
-  namespace?: string;
   /** 是否跳过交互提示 */
   yes?: boolean;
 }
@@ -129,17 +128,30 @@ export async function initCommand(opts: InitOpts): Promise<void> {
     if (unmanaged.length === 0) {
       console.log(chalk.gray('  未发现散落 skill'));
     } else {
-      const grouped = groupBySkillName(unmanaged);
+      const grouped = new Map<string, typeof unmanaged>();
+      for (const skill of unmanaged) {
+        const key = normalizeSkillKey(skill.relativePath ?? skill.name);
+        const instances = grouped.get(key) ?? [];
+        instances.push(skill);
+        grouped.set(key, instances);
+      }
       console.log(chalk.gray(`  发现 ${unmanaged.length} 个散落 skill（${grouped.size} 个唯一名称）`));
 
-      const namespace = opts.namespace || 'local';
       let imported = 0;
 
       for (const [skillName, instances] of grouped) {
+        const contentHashes = new Set(instances.map(instance => computeSourceHash(instance.dir)));
+        if (contentHashes.size > 1) {
+          console.log(chalk.yellow(
+            `  ⚠ 跳过 ${skillName}: 不同 Agent 中存在同名但内容不同的 skill；请重命名后再导入。`,
+          ));
+          continue;
+        }
+
         // 取第一个实例导入
         const first = instances[0]!;
         try {
-          const result = importSkill(ctx, first, namespace, {
+          const result = importSkill(ctx, first, {
             replaceWithLink: opts.link ?? false,
           });
           console.log(chalk.green(`  ✓ 导入 ${result.name} (v${result.version})`));

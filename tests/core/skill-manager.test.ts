@@ -158,18 +158,18 @@ describe('skill-manager', () => {
       };
 
       const ctx = createTestContext({ homeDir: env.homeDir });
-      const result = importSkill(ctx, scanned, 'local');
+      const result = importSkill(ctx, scanned);
 
-      expect(result.name).toBe('local/test-skill');
+      expect(result.name).toBe('test-skill');
       expect(result.version).toBe('1.0.0');
 
       // 验证 manifest 存在
-      expect(manifestExists('local', 'test-skill')).toBe(true);
+      expect(manifestExists('test-skill')).toBe(true);
 
       // 验证 lock 存在
-      expect(hasLockEntry('local/test-skill')).toBe(true);
+      expect(hasLockEntry('test-skill')).toBe(true);
 
-      // 验证文件已复制（local 命名空间不作为目录层级）
+      // 验证文件已复制
       const repoPath = path.join(env.homeDir, 'skills', 'test-skill');
       expect(fs.existsSync(path.join(repoPath, 'SKILL.md'))).toBe(true);
     });
@@ -190,7 +190,7 @@ describe('skill-manager', () => {
       };
 
       const ctx = createTestContext({ homeDir: env.homeDir });
-      const result = importSkill(ctx, scanned, 'local', { replaceWithLink: true });
+      const result = importSkill(ctx, scanned, { replaceWithLink: true });
 
       expect(result.deployed).toContain('claude-code');
 
@@ -209,11 +209,11 @@ describe('skill-manager', () => {
       };
 
       const ctx = createTestContext({ homeDir: env.homeDir, dryRun: true });
-      const result = importSkill(ctx, scanned, 'local');
+      const result = importSkill(ctx, scanned);
 
-      expect(result.name).toBe('local/test-skill');
+      expect(result.name).toBe('test-skill');
       // 不应创建 manifest
-      expect(manifestExists('local', 'test-skill')).toBe(false);
+      expect(manifestExists('test-skill')).toBe(false);
     });
   });
 
@@ -236,13 +236,12 @@ describe('skill-manager', () => {
       };
 
       const ctx = createTestContext({ homeDir: env.homeDir });
-      importSkill(ctx, scanned, 'local');
+      importSkill(ctx, scanned);
 
       const skills = listSkills(ctx);
       expect(skills).toHaveLength(1);
-      expect(skills[0]!.name).toBe('local/test-skill');
+      expect(skills[0]!.name).toBe('test-skill');
       expect(skills[0]!.version).toBe('2.0.0');
-      expect(skills[0]!.namespace).toBe('local');
       expect(skills[0]!.managed).toBe(true);
     });
   });
@@ -260,24 +259,24 @@ describe('skill-manager', () => {
       };
 
       const ctx = createTestContext({ homeDir: env.homeDir });
-      importSkill(ctx, scanned, 'local');
+      importSkill(ctx, scanned);
 
       // 先删除原位置的散落文件
       fs.rmSync(path.join(agentDir, 'test-skill'), { recursive: true, force: true });
 
       // 分发
-      deploySkill(ctx, 'local/test-skill', 'cursor');
+      deploySkill(ctx, 'test-skill', 'cursor');
 
       const cursorSkillDir = path.join(env.agentsDir, '.cursor', 'skills', 'test-skill');
       expect(fs.existsSync(cursorSkillDir)).toBe(true);
       expect(fs.lstatSync(cursorSkillDir).isSymbolicLink()).toBe(true);
 
       // 验证 lock 更新
-      const entry = getLockEntry('local/test-skill');
+      const entry = getLockEntry('test-skill');
       expect(entry!.distribution['cursor']).toBeDefined();
     });
 
-    it('取消分发', () => {
+    it('取消分发（symlink 模式：解除链接并复制副本，标记 managed=false）', () => {
       // 先导入并分发
       const agentDir = mockAgentSkillDir(env.agentsDir, '.claude/skills');
       const scanned = {
@@ -289,17 +288,65 @@ describe('skill-manager', () => {
       };
 
       const ctx = createTestContext({ homeDir: env.homeDir });
-      importSkill(ctx, scanned, 'local', { replaceWithLink: true });
+      importSkill(ctx, scanned, { replaceWithLink: true });
 
       // 取消分发
-      undeploySkill(ctx, 'local/test-skill', 'claude-code');
+      undeploySkill(ctx, 'test-skill', 'claude-code');
 
       const skillPath = path.join(env.agentsDir, '.claude', 'skills', 'test-skill');
-      expect(fs.existsSync(skillPath)).toBe(false);
+      // 副本应保留（不再是 symlink，而是真实目录）
+      expect(fs.existsSync(skillPath)).toBe(true);
+      expect(fs.lstatSync(skillPath).isSymbolicLink()).toBe(false);
+      expect(fs.lstatSync(skillPath).isDirectory()).toBe(true);
+      // 副本中应有 SKILL.md
+      expect(fs.existsSync(path.join(skillPath, 'SKILL.md'))).toBe(true);
 
-      // 验证 lock 更新
-      const entry = getLockEntry('local/test-skill');
-      expect(entry!.distribution['claude-code']).toBeUndefined();
+      // 验证 lock 更新：distribution 条目保留，managed = false
+      const entry = getLockEntry('test-skill');
+      expect(entry!.distribution['claude-code']).toBeDefined();
+      expect(entry!.distribution['claude-code']?.managed).toBe(false);
+    });
+
+    it('拒绝覆盖被手动修改的受管 copy 分发', () => {
+      const agentDir = mockAgentSkillDir(env.agentsDir, '.claude/skills');
+      const scanned = {
+        name: 'test-skill',
+        dir: createMockSkillDir(agentDir, 'test-skill'),
+        skillMdPath: path.join(agentDir, 'test-skill', 'SKILL.md'),
+        agentName: 'claude-code',
+        isSymlink: false,
+      };
+
+      const ctx = createTestContext({ homeDir: env.homeDir });
+      importSkill(ctx, scanned);
+      deploySkill(ctx, 'test-skill', 'cursor', { mode: 'copy' });
+
+      const copyPath = path.join(env.agentsDir, '.cursor', 'skills', 'test-skill', 'SKILL.md');
+      fs.appendFileSync(copyPath, '\nmanual change');
+
+      expect(() => deploySkill(ctx, 'test-skill', 'cursor', { mode: 'copy' })).toThrow('手动修改');
+    });
+
+    it('取消分发不会覆盖手动替换掉 symlink 的目录', () => {
+      const agentDir = mockAgentSkillDir(env.agentsDir, '.claude/skills');
+      const skillPath = createMockSkillDir(agentDir, 'test-skill');
+      const scanned = {
+        name: 'test-skill',
+        dir: skillPath,
+        skillMdPath: path.join(skillPath, 'SKILL.md'),
+        agentName: 'claude-code',
+        isSymlink: false,
+      };
+
+      const ctx = createTestContext({ homeDir: env.homeDir });
+      importSkill(ctx, scanned, { replaceWithLink: true });
+      fs.rmSync(skillPath, { recursive: true, force: true });
+      fs.mkdirSync(skillPath, { recursive: true });
+      fs.writeFileSync(path.join(skillPath, 'manual.txt'), 'keep me');
+
+      undeploySkill(ctx, 'test-skill', 'claude-code');
+
+      expect(fs.readFileSync(path.join(skillPath, 'manual.txt'), 'utf-8')).toBe('keep me');
     });
   });
 
@@ -315,19 +362,19 @@ describe('skill-manager', () => {
       };
 
       const ctx = createTestContext({ homeDir: env.homeDir });
-      importSkill(ctx, scanned, 'local', { replaceWithLink: true });
+      importSkill(ctx, scanned, { replaceWithLink: true });
 
-      removeSkill(ctx, 'local/test-skill', 'all');
+      removeSkill(ctx, 'test-skill', 'all');
 
       // 中央仓库删除
-      expect(hasLockEntry('local/test-skill')).toBe(false);
-      expect(manifestExists('local', 'test-skill')).toBe(false);
+      expect(hasLockEntry('test-skill')).toBe(false);
+      expect(manifestExists('test-skill')).toBe(false);
 
       // Agent 目录删除
       const skillPath = path.join(env.agentsDir, '.claude', 'skills', 'test-skill');
       expect(fs.existsSync(skillPath)).toBe(false);
 
-      // 中央仓库 skill 目录删除（local 命名空间不作为目录层级）
+      // 中央仓库 skill 目录删除（SkillKey 直接映射为目录层级）
       const repoPath = path.join(env.homeDir, 'skills', 'test-skill');
       expect(fs.existsSync(repoPath)).toBe(false);
     });
@@ -343,13 +390,13 @@ describe('skill-manager', () => {
       };
 
       const ctx = createTestContext({ homeDir: env.homeDir });
-      importSkill(ctx, scanned, 'local', { replaceWithLink: true });
+      importSkill(ctx, scanned, { replaceWithLink: true });
 
-      removeSkill(ctx, 'local/test-skill', 'agent', 'claude-code');
+      removeSkill(ctx, 'test-skill', 'agent', 'claude-code');
 
       // 中央仓库仍存在
-      expect(hasLockEntry('local/test-skill')).toBe(true);
-      expect(manifestExists('local', 'test-skill')).toBe(true);
+      expect(hasLockEntry('test-skill')).toBe(true);
+      expect(manifestExists('test-skill')).toBe(true);
 
       // Agent 目录已删除
       const skillPath = path.join(env.agentsDir, '.claude', 'skills', 'test-skill');

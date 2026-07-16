@@ -119,4 +119,13 @@ describe('HTTP API', () => {
     const data = await res.json();
     expect(data.error).toContain('name');
   });
+
+  it('POST /api/skill/deploy uses an opaque name query parameter', async () => {
+    const res = await app.request('/api/skill/deploy?name=anthropics%2Fskills%2Fskills%2Fpdf&agents=claude-code', {
+      method: 'POST',
+    });
+
+    expect(res.status).not.toBe(404);
+    expect(res.status).toBe(500);
+  });
 });

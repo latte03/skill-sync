@@ -7,10 +7,8 @@
 // ==================== Skill 信息 ====================
 
 export interface SkillInfo {
-  /** 带命名空间的完整名称: anthropics/pdf-processing */
+  /** skill 完整名称（如 anthropics/pdf-processing 或 tdd） */
   name: string;
-  namespace: string;
-  skillName: string;
   version: string;
   description: string;
   tags: string[];
@@ -34,9 +32,13 @@ export interface SkillDetail extends SkillInfo {
 
 export interface SkillSource {
   type: 'github' | 'local';
-  /** owner/repo */
+  /** GitHub owner. Kept separately so source data is lossless. */
+  owner?: string;
+  /** GitHub repository name, without owner. */
   repo?: string;
-  /** skill 在仓库中的路径 */
+  /** Path of the skill directory inside the GitHub repository. */
+  skillPath?: string;
+  /** @deprecated Legacy alias for skillPath; read for persisted compatibility only. */
   path?: string;
   commit?: string;
   installedVia: 'cli' | 'init-scan';
@@ -100,11 +102,14 @@ export interface InstallOpts {
   noDeploy?: boolean;
   ignoreDeps?: boolean;
   yes?: boolean;
+  /** Internal compatibility hook: preserve an existing legacy key during update. */
+  targetKey?: string;
+  /** Internal update hook: replace the existing SkillKey after a backup. */
+  replaceExisting?: boolean;
 }
 
 export interface InstallResult {
   name: string;
-  namespace: string;
   version: string;
   source: SkillSource;
   /** 已分发到的 Agent */
@@ -362,11 +367,16 @@ export interface Config {
 
 export interface Manifest {
   name: string;
-  namespace: string;
   description: string;
   source: {
     type: 'github' | 'local';
+    /** GitHub owner. Kept separately so manifest source data is lossless. */
+    owner?: string;
+    /** GitHub repository name, without owner. */
     repo?: string;
+    /** Path of the skill directory inside the repository. */
+    skillPath?: string;
+    /** @deprecated Legacy alias for skillPath. */
     path?: string;
     installedVia: 'cli' | 'init-scan';
   };
@@ -405,9 +415,13 @@ export interface LockFile {
 export interface LockEntry {
   source: {
     type: 'github' | 'local';
+    owner?: string;
     repo?: string;
+    skillPath?: string;
+    /** @deprecated Legacy alias for skillPath. */
     path?: string;
     commit?: string;
+    installedVia?: 'cli' | 'init-scan';
   };
   version: string;
   installedAt: string;
@@ -467,7 +481,6 @@ export interface FrontmatterResult {
 
 export interface ImportResult {
   name: string;
-  namespace: string;
   version: string;
   deployed: string[];
 }

@@ -65,17 +65,14 @@ export function cleanCommand(opts: {
       if (opts.backups) {
         // 清理指定 skill 的备份
         const name = opts.backups;
-        const [namespace, skillName] = name.split('/');
-        if (namespace && skillName) {
-          const backupDir = backupDirPath(namespace, skillName);
-          if (fs.existsSync(backupDir)) {
-            const size = getDirSize(backupDir);
-            fs.rmSync(backupDir, { recursive: true });
-            console.log(chalk.green(`  ✓ 清理 ${name} 的备份: ${formatSize(size)}`));
-            cleaned++;
-          } else {
-            console.log(chalk.gray(`  - ${name} 无备份目录`));
-          }
+        const backupDir = backupDirPath(name);
+        if (fs.existsSync(backupDir)) {
+          const size = getDirSize(backupDir);
+          fs.rmSync(backupDir, { recursive: true });
+          console.log(chalk.green(`  ✓ 清理 ${name} 的备份: ${formatSize(size)}`));
+          cleaned++;
+        } else {
+          console.log(chalk.gray(`  - ${name} 无备份目录`));
         }
       } else {
         // 清理所有 skill 的备份
@@ -83,9 +80,7 @@ export function cleanCommand(opts: {
         let totalSize = 0;
         let count = 0;
         for (const name of names) {
-          const [ns, sn] = name.split('/');
-          if (!ns || !sn) continue;
-          const backupDir = backupDirPath(ns, sn);
+          const backupDir = backupDirPath(name);
           if (fs.existsSync(backupDir)) {
             totalSize += getDirSize(backupDir);
             fs.rmSync(backupDir, { recursive: true });
@@ -104,9 +99,14 @@ export function cleanCommand(opts: {
     // 3. 清理孤儿文件
     if (doOrphans) {
       const managedSkills = new Set<string>();
+      const managedPrefixes = new Set<string>();
       const allSkills = listSkills(ctx);
       for (const skill of allSkills) {
-        managedSkills.add(skill.skillName);
+        managedSkills.add(skill.name);
+        const segments = skill.name.split('/');
+        for (let i = 1; i < segments.length; i++) {
+          managedPrefixes.add(segments.slice(0, i).join('/'));
+        }
       }
 
       const agents = getAgents();
@@ -120,6 +120,8 @@ export function cleanCommand(opts: {
         for (const entry of entries) {
           if (!entry.isDirectory() && !entry.isSymbolicLink()) continue;
           if (managedSkills.has(entry.name)) continue;
+          // 一个顶层目录可能只是嵌套 SkillKey 的容器，不能当作孤儿整棵删除。
+          if (managedPrefixes.has(entry.name)) continue;
 
           const fullPath = path.join(agentSkillDir, entry.name);
           const isSymlink = fs.lstatSync(fullPath).isSymbolicLink();

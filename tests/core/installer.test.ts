@@ -130,32 +130,30 @@ describe('installLocalSkill', () => {
 
   it('安装 skill 到中央仓库', () => {
     const ctx = createTestContext();
-    const result = installLocalSkill(ctx, path.join(testDir, 'test-skill'), 'local', {
+    const result = installLocalSkill(ctx, path.join(testDir, 'test-skill'), {
       noDeploy: true,
       ignoreDeps: true,
     });
 
-    expect(result.name).toBe('local/test-skill');
-    expect(result.namespace).toBe('local');
+    expect(result.name).toBe('test-skill');
     expect(result.version).toBe('1.2.0');
     expect(result.source.type).toBe('local');
 
     // 验证文件已复制
-    const repoPath = skillRepoPath('local', 'test-skill');
+    const repoPath = skillRepoPath('test-skill');
     expect(fs.existsSync(path.join(repoPath, 'SKILL.md'))).toBe(true);
     expect(fs.existsSync(path.join(repoPath, 'script.sh'))).toBe(true);
   });
 
   it('生成 manifest.yaml', () => {
     const ctx = createTestContext();
-    installLocalSkill(ctx, path.join(testDir, 'test-skill'), 'local', {
+    installLocalSkill(ctx, path.join(testDir, 'test-skill'), {
       noDeploy: true,
       ignoreDeps: true,
     });
 
-    const manifest = readManifest('local', 'test-skill');
+    const manifest = readManifest('test-skill');
     expect(manifest).not.toBeNull();
-    expect(manifest?.namespace).toBe('local');
     expect(manifest?.name).toBe('test-skill');
     expect(manifest?.currentVersion).toBe('1.2.0');
     expect(manifest?.description).toBe('A test skill');
@@ -163,12 +161,12 @@ describe('installLocalSkill', () => {
 
   it('更新 skills-lock.json', () => {
     const ctx = createTestContext();
-    installLocalSkill(ctx, path.join(testDir, 'test-skill'), 'local', {
+    installLocalSkill(ctx, path.join(testDir, 'test-skill'), {
       noDeploy: true,
       ignoreDeps: true,
     });
 
-    const entry = getLockEntry('local/test-skill');
+    const entry = getLockEntry('test-skill');
     expect(entry).not.toBeNull();
     expect(entry?.version).toBe('1.2.0');
     expect(entry?.source.type).toBe('local');
@@ -177,8 +175,20 @@ describe('installLocalSkill', () => {
   it('对不存在的路径抛出错误', () => {
     const ctx = createTestContext();
     expect(() => {
-      installLocalSkill(ctx, '/nonexistent/path', 'local', { noDeploy: true });
+      installLocalSkill(ctx, '/nonexistent/path', { noDeploy: true });
     }).toThrow('本地路径不存在');
+  });
+
+  it('拒绝 frontmatter 中的 XML 标签', () => {
+    fs.writeFileSync(
+      path.join(testDir, 'test-skill', 'SKILL.md'),
+      '---\nname: test-skill\ndescription: <script>alert(1)</script>\n---\n\n# Test Skill\n',
+    );
+
+    const ctx = createTestContext();
+    expect(() => {
+      installLocalSkill(ctx, path.join(testDir, 'test-skill'), { noDeploy: true });
+    }).toThrow('XML 尖括号');
   });
 
   it('指定 skill 名称过滤', () => {
@@ -190,13 +200,13 @@ describe('installLocalSkill', () => {
     );
 
     const ctx = createTestContext();
-    const result = installLocalSkill(ctx, testDir, 'local', {
+    const result = installLocalSkill(ctx, testDir, {
       skill: 'test-skill',
       noDeploy: true,
       ignoreDeps: true,
     });
 
-    expect(result.name).toBe('local/test-skill');
+    expect(result.name).toBe('test-skill');
   });
 
   it('多 skill 且未指定时抛出错误', () => {
@@ -209,7 +219,7 @@ describe('installLocalSkill', () => {
 
     const ctx = createTestContext();
     expect(() => {
-      installLocalSkill(ctx, testDir, 'local', { noDeploy: true });
+      installLocalSkill(ctx, testDir, { noDeploy: true });
     }).toThrow('发现多个 skill');
   });
 });

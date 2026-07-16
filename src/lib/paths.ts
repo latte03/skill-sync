@@ -7,6 +7,7 @@
 
 import path from 'node:path';
 import os from 'node:os';
+import { assertCanonicalSkillKey } from './skill-key.js';
 
 /**
  * 获取中央仓库根目录
@@ -93,37 +94,35 @@ export function tempPath(): string {
 /**
  * 获取 skill 的中央仓库路径
  *
- * @param namespace 命名空间（如 anthropics），空字符串表示本地导入无命名空间
- * @param skillName skill 名称（如 pdf-processing）
- * @returns 完整路径，如 ~/.skill-sync/skills/anthropics/pdf-processing/ 或 ~/.skill-sync/skills/pdf-processing/
+ * name 是 skill 的完整路径标识（如 `anthropics/pdf-processing` 或 `tdd`），
+ * 直接映射为 skills/ 下的目录层级，不解析或拆分 SkillKey。
+ *
+ * @param name skill 完整名称（如 `anthropics/pdf-processing` 或 `engineering/tdd`）
+ * @returns 完整路径，如 ~/.skill-sync/skills/anthropics/pdf-processing/
  */
-export function skillRepoPath(namespace: string, skillName: string): string {
-  // 本地导入无命名空间时，直接放在 skills/ 下
-  if (!namespace || namespace === 'local') {
-    return homePath('skills', skillName);
-  }
-  return homePath('skills', namespace, skillName);
+export function skillRepoPath(name: string): string {
+  return homePath('skills', assertCanonicalSkillKey(name));
 }
 
 /**
  * 获取 skill 的 manifest.yaml 路径
  */
-export function manifestPath(namespace: string, skillName: string): string {
-  return path.join(skillRepoPath(namespace, skillName), 'manifest.yaml');
+export function manifestPath(name: string): string {
+  return path.join(skillRepoPath(name), 'manifest.yaml');
 }
 
 /**
  * 获取 skill 的 SKILL.md 路径
  */
-export function skillMdPath(namespace: string, skillName: string): string {
-  return path.join(skillRepoPath(namespace, skillName), 'SKILL.md');
+export function skillMdPath(name: string): string {
+  return path.join(skillRepoPath(name), 'SKILL.md');
 }
 
 /**
  * 获取 skill 的 .backup 目录路径
  */
-export function backupDirPath(namespace: string, skillName: string): string {
-  return path.join(skillRepoPath(namespace, skillName), '.backup');
+export function backupDirPath(name: string): string {
+  return path.join(skillRepoPath(name), '.backup');
 }
 
 /**

@@ -7,7 +7,6 @@
  *   skill-sync import <path> [options]
  *
  * 选项：
- *   -n, --namespace <name>  命名空间（默认: local）
  *   -a, --agents <list>     导入后分发到指定 Agent
  *   --deploy <type>         部署方式: symlink | copy
  *   --no-deploy             只导入到中央仓库，不自动分发
@@ -24,7 +23,6 @@ import { detectInstalledAgents, getAgentDisplayName } from '../lib/agents.js';
 import type { ScannedSkill, UserDeployMode } from '../lib/types.js';
 
 export function importCommand(inputPath: string | undefined, opts: {
-  namespace?: string;
   agents?: string;
   deploy?: UserDeployMode;
   noDeploy?: boolean;
@@ -42,8 +40,6 @@ export function importCommand(inputPath: string | undefined, opts: {
   }
 
   const ctx = createContext();
-  // 本地导入：不指定命名空间，或显式指定为空字符串
-  const namespace = opts.namespace === 'local' ? '' : (opts.namespace || '');
 
   // 发现 skill
   const skills = discoverLocalSkills(resolved);
@@ -55,7 +51,6 @@ export function importCommand(inputPath: string | undefined, opts: {
 
   console.log(chalk.cyan('\n═══ 导入 Skill ═══\n'));
   console.log(chalk.gray(`  路径: ${resolved}`));
-  console.log(chalk.gray(`  命名空间: ${namespace}`));
   console.log(chalk.gray(`  发现 ${skills.length} 个 skill:\n`));
 
   for (const skill of skills) {
@@ -90,7 +85,7 @@ export function importCommand(inputPath: string | undefined, opts: {
     };
 
     try {
-      const result = importSkill(ctx, scanned, namespace, {
+      const result = importSkill(ctx, scanned, {
         replaceWithLink: false,
         mode: opts.deploy,
       });

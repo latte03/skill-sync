@@ -7,6 +7,8 @@
  * - 在输出到终端前清理，防止恶意数据清屏、移动光标、修改窗口标题等
  */
 
+import { normalizeSkillKey } from './skill-key.js';
+
 // CSI 序列: ESC[ + 参数字节 (0x30-0x3F) + 中间字节 (0x20-0x2F) + 终止字节 (0x40-0x7E)
 const CSI_RE = /\x1b\[[\x30-\x3f]*[\x20-\x2f]*[\x40-\x7e]/g;
 
@@ -60,12 +62,7 @@ export function sanitizeMetadata(str: string): string {
  * 3. 折叠连续连字符，去除首尾连字符和斜杠
  */
 export function sanitizeName(name: string): string {
-  return name
-    .replace(/\.\./g, '--') // 中和路径遍历： ".." → "--"
-    .replace(/[^a-zA-Z0-9._/-]/g, '-') // 过滤非法字符（保留 /）
-    .replace(/--+/g, '-') // 折叠连续连字符
-    .replace(/^[-/]+|[-/]+$/g, '') // 去除首尾连字符和斜杠
-    || 'unnamed-skill';
+  return normalizeSkillKey(name);
 }
 
 /**

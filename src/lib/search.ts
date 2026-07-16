@@ -27,13 +27,10 @@ export function searchLocal(query: string, limit = 20): SearchResult[] {
   const results: SearchResult[] = [];
 
   for (const [fullName, entry] of Object.entries(lock.skills)) {
-    const [namespace, skillName] = fullName.split('/');
-    if (!namespace || !skillName) continue;
-
     let description = '';
     let tags: string[] = [];
     try {
-      const manifest = readManifest(namespace, skillName);
+      const manifest = readManifest(fullName);
       description = manifest.description ?? '';
       tags = manifest.tags ?? [];
     } catch {

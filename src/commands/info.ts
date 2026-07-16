@@ -15,6 +15,7 @@ import { getLockEntry } from '../lib/lock.js';
 import { readManifest } from '../lib/manifest.js';
 import { getAgentSkillDir, getAgents } from '../lib/agents.js';
 import { handleCommandError } from '../lib/errors.js';
+import { getGitHubSkillLocation } from '../lib/skill-key.js';
 import type { LockEntry } from '../lib/types.js';
 
 export function infoCommand(name: string): void {
@@ -28,11 +29,10 @@ export function infoCommand(name: string): void {
     }
 
     const entry: LockEntry | null = getLockEntry(name);
-    const [namespace, skillName] = name.split('/');
 
     let manifest = null;
     try {
-      manifest = readManifest(namespace, skillName);
+      manifest = readManifest(name);
     } catch {
       // ignore
     }
@@ -48,8 +48,9 @@ export function infoCommand(name: string): void {
     console.log(`  ${chalk.gray('Version:')}      ${detail.version}`);
 
     if (entry?.source) {
-      const sourceStr = entry.source.type === 'github'
-        ? `github:${entry.source.repo}${entry.source.path ? '/' + entry.source.path : ''}`
+      const githubLocation = getGitHubSkillLocation(entry.source);
+      const sourceStr = githubLocation
+        ? `github:${githubLocation.owner}/${githubLocation.repo}${githubLocation.skillPath ? '/' + githubLocation.skillPath : ''}`
         : 'local';
       console.log(`  ${chalk.gray('Source:')}       ${sourceStr}`);
     }
