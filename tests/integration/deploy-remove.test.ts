@@ -23,6 +23,7 @@ import { getLockEntry } from '../../src/lib/lock.js';
 import { readManifest } from '../../src/lib/manifest.js';
 import { lockPath, manifestPath, skillRepoPath } from '../../src/lib/paths.js';
 import { transactionLockPath } from '../../src/lib/persistence.js';
+import { recoverManagedState } from '../../src/core/state-recovery.js';
 import { setupTestEnv, cleanupTestEnv } from '../test-utils.js';
 
 describe('install → deploy → undeploy → remove 生命周期', () => {
@@ -337,6 +338,33 @@ describe('install → deploy → undeploy → remove 生命周期', () => {
 
     expect(() => removeSkill(ctx, 'test-skill', 'agent', 'cursor')).toThrow('状态文件正在被其他进程修改');
 
+    expect(fs.lstatSync(destination).isSymbolicLink()).toBe(true);
+    expect(getLockEntry('test-skill')?.distribution.cursor).toBeDefined();
+    expect(readManifest('test-skill').distribution.targets.find(target => target.agent === 'cursor')).toBeDefined();
+  });
+
+  it('remove --agent recovers after manifest commit when lock commit is interrupted', () => {
+    const ctx = createTestContext();
+    installLocalSkill(ctx, path.join(testDir, 'test-skill'), { noDeploy: true, ignoreDeps: true });
+    deploySkill(ctx, 'test-skill', 'cursor', { force: true });
+    const destination = path.join(getAgentSkillDir('cursor'), 'test-skill');
+    const originalRename = fs.renameSync.bind(fs);
+    let injected = false;
+    const renameSpy = vi.spyOn(fs, 'renameSync').mockImplementation((from, to) => {
+      const result = originalRename(from, to);
+      if (!injected && path.resolve(String(to)) === manifestPath('test-skill')) {
+        injected = true;
+        fs.writeFileSync(transactionLockPath(lockPath()), 'interrupted remove');
+      }
+      return result;
+    });
+
+    expect(() => removeSkill(ctx, 'test-skill', 'agent', 'cursor'))
+      .toThrow('状态文件正在被其他进程修改');
+    renameSpy.mockRestore();
+    fs.rmSync(transactionLockPath(lockPath()), { force: true });
+
+    expect(recoverManagedState()).toEqual({ restored: 1, cleaned: 0 });
     expect(fs.lstatSync(destination).isSymbolicLink()).toBe(true);
     expect(getLockEntry('test-skill')?.distribution.cursor).toBeDefined();
     expect(readManifest('test-skill').distribution.targets.find(target => target.agent === 'cursor')).toBeDefined();

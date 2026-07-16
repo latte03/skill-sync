@@ -2,7 +2,7 @@
  * skill-manager 模块单元测试
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 import { createTestEnv, createMockSkillDir, mockAgentSkillDir } from '../test-utils.js';
@@ -21,8 +21,9 @@ import {
 import { resetAgentsCache } from '../../src/lib/agents.js';
 import { getLockEntry, hasLockEntry } from '../../src/lib/lock.js';
 import { manifestExists, readManifest } from '../../src/lib/manifest.js';
-import { lockPath } from '../../src/lib/paths.js';
+import { lockPath, manifestPath } from '../../src/lib/paths.js';
 import { transactionLockPath } from '../../src/lib/persistence.js';
+import { recoverManagedState } from '../../src/core/state-recovery.js';
 
 describe('skill-manager', () => {
   let env: ReturnType<typeof createTestEnv>;
@@ -214,6 +215,34 @@ describe('skill-manager', () => {
       expect(() => importSkill(createTestContext({ homeDir: env.homeDir }), scanned, { replaceWithLink: true }))
         .toThrow('状态文件正在被其他进程修改');
 
+      expect(fs.lstatSync(skillPath).isDirectory()).toBe(true);
+      expect(getLockEntry('test-skill')?.distribution['claude-code']).toBeUndefined();
+      expect(readManifest('test-skill').distribution.targets).toEqual([]);
+    });
+
+    it('replaceWithLink 在 manifest 已提交但 lock 未提交时可恢复原目录与元数据', () => {
+      const skillDir = mockAgentSkillDir(env.agentsDir, '.claude/skills');
+      const skillPath = createMockSkillDir(skillDir, 'test-skill', { name: 'test-skill', version: '1.0.0' });
+      const scanned = {
+        name: 'test-skill', dir: skillPath, skillMdPath: path.join(skillPath, 'SKILL.md'),
+        agentName: 'claude-code', isSymlink: false,
+      };
+      const originalRename = fs.renameSync.bind(fs);
+      let manifestWrites = 0;
+      const renameSpy = vi.spyOn(fs, 'renameSync').mockImplementation((from, to) => {
+        const result = originalRename(from, to);
+        if (path.resolve(String(to)) === manifestPath('test-skill') && ++manifestWrites === 2) {
+          fs.writeFileSync(transactionLockPath(lockPath()), 'interrupted import');
+        }
+        return result;
+      });
+
+      expect(() => importSkill(createTestContext({ homeDir: env.homeDir }), scanned, { replaceWithLink: true }))
+        .toThrow('状态文件正在被其他进程修改');
+      renameSpy.mockRestore();
+      fs.rmSync(transactionLockPath(lockPath()), { force: true });
+
+      expect(recoverManagedState()).toEqual({ restored: 1, cleaned: 0 });
       expect(fs.lstatSync(skillPath).isDirectory()).toBe(true);
       expect(getLockEntry('test-skill')?.distribution['claude-code']).toBeUndefined();
       expect(readManifest('test-skill').distribution.targets).toEqual([]);

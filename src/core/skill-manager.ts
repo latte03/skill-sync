@@ -17,7 +17,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { readManifest, writeManifest, manifestExists, createManifestFromFrontmatter } from '../lib/manifest.js';
-import { readLock, writeLock, getLockEntry, setLockEntry, updateLockEntry, removeLockEntry, getAllLockSkillNames } from '../lib/lock.js';
+import { readLock, writeLock, getLockEntry, setLockEntry, removeLockEntry, getAllLockSkillNames } from '../lib/lock.js';
 import { parseFrontmatter, extractVersion, hasXmlBrackets } from '../lib/frontmatter.js';
 import { sanitizeMetadata, sanitizeName, isPathSafe } from '../lib/sanitize.js';
 import { getAgentSkillDir, getAgents } from '../lib/agents.js';
@@ -511,7 +511,9 @@ export function importSkill(
       const originalLockEntry = structuredClone(lockEntry);
       const distributedAt = new Date().toISOString();
       const sourceHash = computeSourceHash(repoPath);
-      manifest.distribution.targets.push({
+      const nextManifest = structuredClone(manifest);
+      const nextLockEntry = structuredClone(lockEntry);
+      nextManifest.distribution.targets.push({
         agent: scanned.agentName,
         path: scanned.dir,
         mode: deployMode,
@@ -520,8 +522,8 @@ export function importSkill(
         sourceHash,
         managed: true,
       });
-      manifest.distribution.mode = deployMode;
-      lockEntry.distribution[scanned.agentName] = {
+      nextManifest.distribution.mode = deployMode;
+      nextLockEntry.distribution[scanned.agentName] = {
         mode: deployMode,
         distributedAt,
         sourceHash,
@@ -529,17 +531,25 @@ export function importSkill(
       };
 
       assertDistributionStateUnlocked(skillName);
-      const destination = replaceDestination(scanned.dir, () => createLink(repoPath, scanned.dir, deployMode));
+      const journal = beginDistributionJournal(
+        skillName, originalManifest, originalLockEntry, nextManifest, nextLockEntry,
+      );
+      let destination: ReturnType<typeof replaceDestination> | null = null;
       try {
-        writeManifest(skillName, manifest);
-        setLockEntry(fullName, lockEntry);
+        destination = replaceDestination(scanned.dir, () => createLink(repoPath, scanned.dir, deployMode), {
+          beforeMove: journal.prepareMove,
+        });
+        writeManifest(skillName, nextManifest);
+        setLockEntry(fullName, nextLockEntry);
         destination.commit();
         deployed.push(scanned.agentName);
+        journal.clear();
       } catch (error) {
         try {
           writeManifest(skillName, originalManifest);
           setLockEntry(fullName, originalLockEntry);
-          destination.rollback();
+          destination?.rollback();
+          journal.clear();
         } catch {
           // Preserve the original state-write error.
         }
@@ -673,32 +683,41 @@ function removeSkillFromAgent(
   const resolved = tryReadManifest(name);
   const manifest = resolved.manifest;
   const originalManifest = manifest ? structuredClone(manifest) : null;
+  const originalLockEntry = structuredClone(entry);
   const skillName = manifest?.name ?? name;
   const destinationPath = path.join(getAgentSkillDir(agentName), skillName);
+  const nextManifest = manifest ? structuredClone(manifest) : null;
+  const nextLockEntry = structuredClone(entry);
 
-  if (manifest) {
-    manifest.distribution.targets = manifest.distribution.targets.filter(target => target.agent !== agentName);
+  if (nextManifest) {
+    nextManifest.distribution.targets = nextManifest.distribution.targets.filter(target => target.agent !== agentName);
   }
+  delete nextLockEntry.distribution[agentName];
 
   assertDistributionStateUnlocked(name);
-  let destination: ReturnType<typeof replaceDestination> | null = null;
+  const journal = originalManifest && nextManifest
+    ? beginDistributionJournal(name, originalManifest, originalLockEntry, nextManifest, nextLockEntry)
+    : null;
+  const destinations: ReturnType<typeof replaceDestination>[] = [];
   try {
-    fs.lstatSync(destinationPath);
-    destination = replaceDestination(destinationPath, () => undefined);
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
-  }
-
-  try {
-    if (manifest) writeManifest(name, manifest);
-    updateLockEntry(name, latest => {
-      delete latest.distribution[agentName];
-    });
-    destination?.commit();
+    try {
+      fs.lstatSync(destinationPath);
+      destinations.push(replaceDestination(destinationPath, () => undefined, {
+        beforeMove: journal?.prepareMove,
+      }));
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+    }
+    if (nextManifest) writeManifest(name, nextManifest);
+    setLockEntry(name, nextLockEntry);
+    for (const destination of destinations) destination.commit();
+    journal?.clear();
   } catch (error) {
     try {
       if (originalManifest) writeManifest(name, originalManifest);
-      destination?.rollback();
+      setLockEntry(name, originalLockEntry);
+      for (const destination of destinations.reverse()) destination.rollback();
+      journal?.clear();
     } catch {
       // Preserve the original state-write error.
     }
