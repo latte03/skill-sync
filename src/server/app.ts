@@ -62,6 +62,7 @@ import { readLock } from '../lib/lock.js';
 import { getHomeDir, skillMdPath, skillRepoPath } from '../lib/paths.js';
 import { recoverManagedState } from '../core/state-recovery.js';
 import { apiError } from './api-error.js';
+import { settingsRoutes } from './routes/settings.js';
 
 const app = new Hono();
 
@@ -83,6 +84,10 @@ app.use('/api/*', async (c, next) => {
     return apiError(c, error);
   }
 });
+
+// Settings routes are mounted after shared middleware so they receive the
+// same CORS and interrupted-state handling as the original API surface.
+app.route('/api', settingsRoutes);
 
 // ─── 健康检查 ─────────────────────────────────────
 app.get('/api/health', (c) => {
@@ -251,6 +256,11 @@ app.get('/api/tags', (c) => {
 app.get('/api/config', (c) => {
   try {
     const config = readConfig();
+    // Legacy versions stored platform tokens in config.yaml. Never expose them
+    // through the API while migration moves new writes to secrets.yaml.
+    for (const platform of ['github', 'gitee'] as const) {
+      if (config.sync?.[platform]?.token) delete config.sync[platform].token;
+    }
     return c.json({ config });
   } catch (e) {
     return c.json({ error: (e as Error).message }, 500);

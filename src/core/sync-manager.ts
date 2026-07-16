@@ -17,7 +17,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { simpleGit, type SimpleGitOptions } from 'simple-git';
 import { getHomeDir } from '../lib/paths.js';
-import { readConfig, updateConfig } from '../config.js';
+import { readConfig, readSecrets, updateConfig, writeConfig, writeSecrets } from '../config.js';
 import type { SkillSyncContext } from './context.js';
 import type {
   SyncResult,
@@ -31,8 +31,8 @@ import type {
   GitPlatformInfo,
   ProxyConfig,
 } from '../lib/types.js';
-import { getLazyGitHubToken } from '../lib/github.js';
-import { getGiteeToken, getUserInfo as getGiteeUserInfo } from '../lib/gitee.js';
+import { getLazyGitHubToken, resetTokenCache as resetGitHubTokenCache } from '../lib/github.js';
+import { getGiteeToken, getUserInfo as getGiteeUserInfo, resetTokenCache as resetGiteeTokenCache } from '../lib/gitee.js';
 
 /**
  * 获取 simple-git 实例
@@ -613,39 +613,41 @@ export function setGitPlatformConfig(platform: GitPlatform, cfg: Partial<GitPlat
   });
 }
 
-/**
- * 设置 Git 平台 Token
- */
-export function setGitPlatformToken(platform: GitPlatform, token: string): void {
+/** Enable exactly one platform when selecting an active sync target. */
+export function setGitPlatformEnabled(platform: GitPlatform, enabled: boolean): void {
   const config = readConfig();
-  const current = config.sync?.[platform] ?? { enabled: false };
+  const github = config.sync?.github ?? { enabled: false, branch: 'main' };
+  const gitee = config.sync?.gitee ?? { enabled: false, branch: 'master' };
 
   updateConfig({
     sync: {
       ...config.sync,
-      [platform]: {
-        ...current,
-        token,
-      },
+      github: platform === 'github' ? { ...github, enabled } : enabled ? { ...github, enabled: false } : github,
+      gitee: platform === 'gitee' ? { ...gitee, enabled } : enabled ? { ...gitee, enabled: false } : gitee,
     },
   });
+}
+
+/**
+ * 设置 Git 平台 Token
+ */
+export function setGitPlatformToken(platform: GitPlatform, token: string): void {
+  const secrets = readSecrets();
+  secrets[platform === 'github' ? 'GITHUB_TOKEN' : 'GITEE_TOKEN'] = token;
+  writeSecrets(secrets);
+  removeLegacyPlatformToken(platform);
+  resetPlatformTokenCache(platform);
 }
 
 /**
  * 清除 Git 平台 Token
  */
 export function removeGitPlatformToken(platform: GitPlatform): void {
-  const config = readConfig();
-  const current = config.sync?.[platform];
-  if (!current) return;
-
-  const { token: _, ...rest } = current;
-  updateConfig({
-    sync: {
-      ...config.sync,
-      [platform]: rest,
-    },
-  });
+  const secrets = readSecrets();
+  delete secrets[platform === 'github' ? 'GITHUB_TOKEN' : 'GITEE_TOKEN'];
+  writeSecrets(secrets);
+  removeLegacyPlatformToken(platform);
+  resetPlatformTokenCache(platform);
 }
 
 /**
@@ -706,4 +708,24 @@ export function getProxyConfig(): ProxyConfig {
     enabled: config.network?.proxy?.enabled ?? false,
     url: config.network?.proxy?.url,
   };
+}
+
+function removeLegacyPlatformToken(platform: GitPlatform): void {
+  const config = readConfig();
+  const current = config.sync?.[platform];
+  if (!current || !('token' in current)) return;
+
+  const { token: _token, ...withoutToken } = current;
+  writeConfig({
+    ...config,
+    sync: {
+      ...config.sync,
+      [platform]: withoutToken,
+    },
+  });
+}
+
+function resetPlatformTokenCache(platform: GitPlatform): void {
+  if (platform === 'github') resetGitHubTokenCache();
+  else resetGiteeTokenCache();
 }

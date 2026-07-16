@@ -490,8 +490,14 @@ function finalizeInstall(
   // 安装包依赖
   const pkgDeps = extractPackageDependencies(frontmatterData);
   if (!isEmptyDependenciesSafe(pkgDeps)) {
-    ctx.logger.debug(`  安装包依赖...`);
-    installDependencies(repoPath, pkgDeps);
+    if (!opts?.installDeps) {
+      ctx.logger.warn('  检测到包依赖，默认不执行（使用 --install-deps 显式安装）');
+    } else {
+      ctx.logger.debug('  安装包依赖（npm 生命周期脚本已禁用）...');
+      if (!installDependencies(repoPath, pkgDeps)) {
+        throw new Error('包依赖安装失败');
+      }
+    }
   }
 
   // 分发到 Agent

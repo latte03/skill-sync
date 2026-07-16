@@ -101,6 +101,7 @@ program
   .option('-a, --agents <agents>', '安装后分发到指定 Agent（逗号分隔）')
   .option('--copy', '使用复制模式（默认 symlink）')
   .option('--no-deploy', '只安装到中央仓库，不自动分发')
+  .option('--install-deps', '显式安装 Skill 声明的 npm/pip 依赖（npm 生命周期脚本保持禁用）')
   .option('--ignore-deps', '跳过依赖检查')
   .option('-y, --yes', '跳过确认提示')
   .action(async (source: string, opts: {
@@ -109,6 +110,7 @@ program
     agents?: string;
     copy?: boolean;
     deploy?: boolean;
+    installDeps?: boolean;
     ignoreDeps?: boolean;
     yes?: boolean;
   }) => {
@@ -119,6 +121,7 @@ program
         agents: opts.agents ? opts.agents.split(',').map(s => s.trim()).filter(Boolean) : undefined,
         deployType: opts.copy ? 'copy' : 'symlink',
         noDeploy: opts.deploy === false,
+        installDeps: opts.installDeps,
         ignoreDeps: opts.ignoreDeps,
         yes: opts.yes,
       });

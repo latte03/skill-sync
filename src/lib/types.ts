@@ -100,6 +100,8 @@ export interface InstallOpts {
   /** 用户指定的部署方式 */
   deployType?: UserDeployMode;
   noDeploy?: boolean;
+  /** Explicitly install package dependencies declared by an untrusted Skill. */
+  installDeps?: boolean;
   ignoreDeps?: boolean;
   yes?: boolean;
   /** Internal compatibility hook: preserve an existing legacy key during update. */

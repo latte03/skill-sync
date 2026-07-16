@@ -13,7 +13,7 @@
  * 已提取到 git-api.ts，本模块仅保留 Gitee 平台特有逻辑。
  */
 
-import { readConfig } from '../config.js';
+import { readConfig, readSecrets } from '../config.js';
 import {
   findSkillMdPaths,
   getSkillFilePaths,
@@ -41,20 +41,27 @@ let _cachedToken: string | null | undefined = undefined;
  * 获取 Gitee token
  *
  * 策略：
- * - 优先从 config.yaml 获取
+ * - 优先从 secrets.yaml 获取
  * - 其次从环境变量获取
  */
 export function getGiteeToken(): string | null {
   if (_cachedToken !== undefined) return _cachedToken || null;
 
-  // 1. 从 config 获取
+  // 1. 从 secrets 获取
+  const secrets = readSecrets();
+  if (secrets.GITEE_TOKEN) {
+    _cachedToken = secrets.GITEE_TOKEN;
+    return _cachedToken;
+  }
+
+  // 2. 兼容旧 config.yaml 中的 token；新写入不会再落到这里。
   const config = readConfig();
   if (config.sync?.gitee?.token) {
     _cachedToken = config.sync.gitee.token;
     return _cachedToken;
   }
 
-  // 2. 环境变量
+  // 3. 环境变量
   const envToken = process.env.GITEE_TOKEN;
   if (envToken) {
     _cachedToken = envToken;

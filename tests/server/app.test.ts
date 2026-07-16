@@ -27,6 +27,7 @@ const { beginRemovalJournal } = await import('../../src/core/distribution-transa
 const { setLockEntry, removeLockEntry } = await import('../../src/lib/lock.js');
 const { homePath } = await import('../../src/lib/paths.js');
 const { transactionLockPath } = await import('../../src/lib/persistence.js');
+const { readSecrets } = await import('../../src/config.js');
 
 describe('HTTP API', () => {
   beforeEach(() => {
@@ -116,6 +117,62 @@ describe('HTTP API', () => {
 
     const data = await res.json();
     expect(data).toHaveProperty('config');
+  });
+
+  it('serves Git platform settings and keeps the active platform exclusive', async () => {
+    const initial = await app.request('/api/git/platforms');
+    expect(initial.status).toBe(200);
+    expect((await initial.json()).platforms).toHaveLength(2);
+
+    const github = await app.request('/api/git/platforms/github/enable', {
+      method: 'POST',
+      body: JSON.stringify({ enabled: true }),
+      headers: { 'Content-Type': 'application/json' },
+    });
+    expect(github.status).toBe(200);
+    expect((await github.json()).active).toBe('github');
+
+    const gitee = await app.request('/api/git/platforms/gitee/enable', {
+      method: 'POST',
+      body: JSON.stringify({ enabled: true }),
+      headers: { 'Content-Type': 'application/json' },
+    });
+    expect(gitee.status).toBe(200);
+    expect((await gitee.json()).active).toBe('gitee');
+
+    const invalid = await app.request('/api/git/platforms/gitlab/enable', {
+      method: 'POST',
+      body: JSON.stringify({ enabled: true }),
+      headers: { 'Content-Type': 'application/json' },
+    });
+    expect(invalid.status).toBe(400);
+    expect(await invalid.json()).toMatchObject({ code: 'INVALID_REQUEST' });
+  });
+
+  it('stores platform tokens in secrets and validates proxy settings', async () => {
+    const token = await app.request('/api/git/platforms/github/token', {
+      method: 'POST',
+      body: JSON.stringify({ token: 'test-token' }),
+      headers: { 'Content-Type': 'application/json' },
+    });
+    expect(token.status).toBe(200);
+    expect(readSecrets().GITHUB_TOKEN).toBe('test-token');
+
+    const invalid = await app.request('/api/network/proxy', {
+      method: 'POST',
+      body: JSON.stringify({ enabled: true, url: 'not-a-url' }),
+      headers: { 'Content-Type': 'application/json' },
+    });
+    expect(invalid.status).toBe(400);
+
+    const saved = await app.request('/api/network/proxy', {
+      method: 'POST',
+      body: JSON.stringify({ enabled: true, url: 'http://127.0.0.1:7890' }),
+      headers: { 'Content-Type': 'application/json' },
+    });
+    expect(saved.status).toBe(200);
+    const loaded = await app.request('/api/network/proxy');
+    expect(await loaded.json()).toMatchObject({ enabled: true, url: 'http://127.0.0.1:7890' });
   });
 
   it('GET /api/skill/detail?name=... 不存在的 skill 返回 404', async () => {

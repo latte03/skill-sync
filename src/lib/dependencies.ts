@@ -10,7 +10,7 @@
  * 本模块处理第 2 种。第 1 种在 installer.ts 中检查。
  */
 
-import { execSync } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 import path from 'node:path';
 import fs from 'node:fs';
 import type { SkillDependencies, PackageManager } from './types.js';
@@ -76,10 +76,8 @@ export function extractPackageDependencies(data: Record<string, unknown>): Skill
 function installNpm(skillDir: string, packages: string[]): boolean {
   if (packages.length === 0) return true;
 
-  const cmd = `npm install --prefix "${skillDir}" ${packages.map(p => `"${p}"`).join(' ')}`;
-
   try {
-    execSync(cmd, {
+    execFileSync('npm', ['install', '--prefix', skillDir, '--ignore-scripts', '--', ...packages], {
       cwd: skillDir,
       stdio: 'pipe',
       timeout: 120_000,
@@ -108,7 +106,7 @@ function installPip(skillDir: string, packages: string[]): boolean {
   // 创建 venv（如果不存在）
   if (!fs.existsSync(pipBin)) {
     try {
-      execSync(`python3 -m venv "${venvDir}"`, {
+      execFileSync('python3', ['-m', 'venv', venvDir], {
         cwd: skillDir,
         stdio: 'pipe',
         timeout: 60_000,
@@ -119,7 +117,7 @@ function installPip(skillDir: string, packages: string[]): boolean {
   }
 
   try {
-    execSync(`"${pipBin}" install ${packages.map(p => `"${p}"`).join(' ')}`, {
+    execFileSync(pipBin, ['install', '--', ...packages], {
       cwd: skillDir,
       stdio: 'pipe',
       timeout: 120_000,

@@ -2,14 +2,22 @@
  * dependencies.ts 单元测试
  */
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { execFileSync } from 'node:child_process';
 import {
   isEmptyDependencies,
   sanitizeDependencies,
   extractPackageDependencies,
   checkSkillDependencies,
+  installDependencies,
 } from '../../src/lib/dependencies.js';
 import type { SkillDependencies } from '../../src/lib/types.js';
+
+vi.mock('node:child_process', () => ({
+  execFileSync: vi.fn(),
+}));
+
+const execFileSyncMock = vi.mocked(execFileSync);
 
 describe('isEmptyDependencies', () => {
   it('undefined 为空', () => {
@@ -30,6 +38,22 @@ describe('isEmptyDependencies', () => {
 
   it('pip 有内容不为空', () => {
     expect(isEmptyDependencies({ pip: ['requests'] })).toBe(false);
+  });
+});
+
+describe('installDependencies', () => {
+  beforeEach(() => {
+    execFileSyncMock.mockReset();
+  });
+
+  it('uses argument arrays and disables npm lifecycle scripts', () => {
+    expect(installDependencies('/tmp/skill dir', { npm: ['safe-package', 'name with spaces'] })).toBe(true);
+
+    expect(execFileSyncMock).toHaveBeenCalledWith(
+      'npm',
+      ['install', '--prefix', '/tmp/skill dir', '--ignore-scripts', '--', 'safe-package', 'name with spaces'],
+      expect.objectContaining({ cwd: '/tmp/skill dir' }),
+    );
   });
 });
 
