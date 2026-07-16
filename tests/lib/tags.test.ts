@@ -5,8 +5,10 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
+import { stringify as stringifyYaml } from 'yaml';
 import { addTag, removeTag, listAllTags, listSkillsByTag, getSkillTags } from '../../src/lib/tags.js';
-import { tagsPath } from '../../src/lib/paths.js';
+import { manifestPath, tagsPath } from '../../src/lib/paths.js';
+import { readManifest } from '../../src/lib/manifest.js';
 import { installLocalSkill } from '../../src/core/installer.js';
 import { createTestContext } from '../../src/core/context.js';
 import { setupTestEnv, cleanupTestEnv } from '../test-utils.js';
@@ -98,6 +100,13 @@ describe('tags', () => {
     expect(() => addTag('nonexistent/skill', 'tag')).toThrow('Skill 未找到');
   });
 
+  it('does not update tags.yaml when the managed skill manifest is unavailable', () => {
+    fs.unlinkSync(manifestPath('test-skill'));
+
+    expect(() => addTag('test-skill', 'document')).toThrow('manifest.yaml 不存在');
+    expect(listAllTags()['document']).toBeUndefined();
+  });
+
   it('无标签时 listAllTags 返回空对象', () => {
     const tags = listAllTags();
     expect(Object.keys(tags).length).toBe(0);
@@ -108,5 +117,22 @@ describe('tags', () => {
     removeTag('test-skill', 'temp');
     const tags = listAllTags();
     expect(tags['temp']).toBeUndefined();
+  });
+
+  it('recovers an interrupted commit after manifest.yaml was written', () => {
+    const originalManifest = readManifest('test-skill');
+    addTag('test-skill', 'document');
+    const nextManifest = readManifest('test-skill');
+    fs.writeFileSync(tagsPath(), stringifyYaml({ tags: {} }));
+    fs.writeFileSync(`${tagsPath()}.transaction`, stringifyYaml({
+      name: 'test-skill',
+      originalTagsFile: { tags: {} },
+      nextTagsFile: { tags: { document: ['test-skill'] } },
+      originalManifest,
+      nextManifest,
+    }));
+
+    expect(listAllTags()).toEqual({ document: ['test-skill'] });
+    expect(fs.existsSync(`${tagsPath()}.transaction`)).toBe(false);
   });
 });

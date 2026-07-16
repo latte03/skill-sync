@@ -548,12 +548,38 @@ function pathsOverlap(left: string, right: string): boolean {
 
 /** Replace downloaded content only after the complete remote snapshot is available. */
 function replaceSkillSnapshot(repoPath: string, stagingPath: string): void {
-  const preservedBackup = path.join(path.dirname(repoPath), `.${path.basename(repoPath)}.backup-${process.pid}-${Date.now()}`);
-  const backupPath = path.join(repoPath, '.backup');
-  const hasBackup = fs.existsSync(backupPath);
+  const previousPath = path.join(path.dirname(repoPath), `.${path.basename(repoPath)}.previous-${process.pid}-${Date.now()}`);
+  const hasPrevious = fs.existsSync(repoPath);
+  let backupMoved = false;
 
-  if (hasBackup) fs.renameSync(backupPath, preservedBackup);
-  fs.rmSync(repoPath, { recursive: true, force: true });
-  fs.renameSync(stagingPath, repoPath);
-  if (hasBackup) fs.renameSync(preservedBackup, path.join(repoPath, '.backup'));
+  try {
+    if (hasPrevious) fs.renameSync(repoPath, previousPath);
+    fs.renameSync(stagingPath, repoPath);
+
+    const previousBackup = path.join(previousPath, '.backup');
+    if (hasPrevious && fs.existsSync(previousBackup)) {
+      fs.renameSync(previousBackup, path.join(repoPath, '.backup'));
+      backupMoved = true;
+    }
+  } catch (error) {
+    try {
+      if (backupMoved && fs.existsSync(path.join(repoPath, '.backup'))) {
+        fs.renameSync(path.join(repoPath, '.backup'), path.join(previousPath, '.backup'));
+      }
+      if (fs.existsSync(repoPath)) fs.rmSync(repoPath, { recursive: true, force: true });
+      if (hasPrevious && fs.existsSync(previousPath)) fs.renameSync(previousPath, repoPath);
+    } catch {
+      // Preserve the original failure; best-effort rollback avoids deleting the old snapshot.
+    }
+    throw error;
+  }
+
+  if (hasPrevious) {
+    try {
+      fs.rmSync(previousPath, { recursive: true, force: true });
+    } catch {
+      // The new snapshot is valid. A leftover retired snapshot is safer than
+      // reporting failure after commit or attempting to roll the user back.
+    }
+  }
 }

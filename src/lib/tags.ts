@@ -13,13 +13,26 @@
 
 import fs from 'node:fs';
 import { stringify as stringifyYaml, parse as parseYaml } from 'yaml';
-import { tagsPath } from './paths.js';
-import { readManifest, writeManifest } from './manifest.js';
+import { homePath, tagsPath } from './paths.js';
+import { manifestExists, readManifest, writeManifest } from './manifest.js';
 import { getLockEntry } from './lock.js';
+import { atomicWriteFile, withFileTransaction } from './persistence.js';
 
 /** tags.yaml 的数据结构 */
 interface TagsFile {
   tags: Record<string, string[]>;
+}
+
+interface TagTransactionJournal {
+  name: string;
+  originalTagsFile: TagsFile;
+  nextTagsFile: TagsFile;
+  originalManifest: ReturnType<typeof readManifest> | null;
+  nextManifest: ReturnType<typeof readManifest> | null;
+}
+
+function tagJournalPath(): string {
+  return `${tagsPath()}.transaction`;
 }
 
 /**
@@ -41,7 +54,7 @@ function readTagsFile(): TagsFile {
 function writeTagsFile(data: TagsFile): void {
   const p = tagsPath();
   const yamlStr = stringifyYaml(data, { indent: 2 });
-  fs.writeFileSync(p, yamlStr, 'utf-8');
+  atomicWriteFile(p, yamlStr);
 }
 
 /**
@@ -56,71 +69,129 @@ export function addTag(name: string, tag: string): void {
     throw new Error(`Skill 未找到: ${name}`);
   }
 
-  // 更新 tags.yaml
-  const tagsFile = readTagsFile();
-  if (!tagsFile.tags[tag]) {
-    tagsFile.tags[tag] = [];
-  }
-  if (!tagsFile.tags[tag].includes(name)) {
-    tagsFile.tags[tag].push(name);
-  }
-  writeTagsFile(tagsFile);
-
-  // 更新 manifest.yaml
-  try {
+  withStateAndTagsTransaction(() => {
+    const tagsFile = readTagsFile();
+    const originalTagsFile = structuredClone(tagsFile);
     const manifest = readManifest(name);
+    const originalManifest = structuredClone(manifest);
+
+    if (!tagsFile.tags[tag]) {
+      tagsFile.tags[tag] = [];
+    }
+    if (!tagsFile.tags[tag].includes(name)) {
+      tagsFile.tags[tag].push(name);
+    }
     if (!manifest.tags) manifest.tags = [];
     if (!manifest.tags.includes(tag)) {
       manifest.tags.push(tag);
-      writeManifest(name, manifest);
     }
-  } catch {
-    // manifest 可能不存在
-  }
+
+    writeTagAndManifestWithRollback(name, tagsFile, manifest, originalTagsFile, originalManifest);
+  });
 }
 
 /**
  * 移除 skill 的标签
  */
 export function removeTag(name: string, tag: string): void {
-  // 更新 tags.yaml
-  const tagsFile = readTagsFile();
-  if (tagsFile.tags[tag]) {
-    tagsFile.tags[tag] = tagsFile.tags[tag].filter(n => n !== name);
-    if (tagsFile.tags[tag].length === 0) {
-      delete tagsFile.tags[tag];
-    }
-  }
-  writeTagsFile(tagsFile);
+  withStateAndTagsTransaction(() => {
+    const tagsFile = readTagsFile();
+    const originalTagsFile = structuredClone(tagsFile);
+    const manifest = manifestExists(name) ? readManifest(name) : null;
+    const originalManifest = manifest ? structuredClone(manifest) : null;
 
-  // 更新 manifest.yaml
-  try {
-    const manifest = readManifest(name);
-    if (manifest.tags) {
+    if (tagsFile.tags[tag]) {
+      tagsFile.tags[tag] = tagsFile.tags[tag].filter(n => n !== name);
+      if (tagsFile.tags[tag].length === 0) {
+        delete tagsFile.tags[tag];
+      }
+    }
+    if (manifest?.tags) {
       manifest.tags = manifest.tags.filter(t => t !== tag);
       if (manifest.tags.length === 0) {
         delete manifest.tags;
       }
-      writeManifest(name, manifest);
     }
-  } catch {
-    // manifest 可能不存在
+
+    writeTagAndManifestWithRollback(name, tagsFile, manifest, originalTagsFile, originalManifest);
+  });
+}
+
+/** Keep duplicated tag state consistent, and restore the first write on failure. */
+function writeTagAndManifestWithRollback(
+  name: string,
+  tagsFile: TagsFile,
+  manifest: ReturnType<typeof readManifest> | null,
+  originalTagsFile: TagsFile,
+  originalManifest: ReturnType<typeof readManifest> | null,
+): void {
+  const journal: TagTransactionJournal = {
+    name,
+    originalTagsFile,
+    nextTagsFile: tagsFile,
+    originalManifest,
+    nextManifest: manifest,
+  };
+  atomicWriteFile(tagJournalPath(), stringifyYaml(journal, { indent: 2 }));
+  try {
+    if (manifest) writeManifest(name, manifest);
+    writeTagsFile(tagsFile);
+    fs.rmSync(tagJournalPath(), { force: true });
+  } catch (error) {
+    try {
+      if (originalManifest) writeManifest(name, originalManifest);
+      writeTagsFile(originalTagsFile);
+    } catch {
+      // Preserve the original state-transition error for the caller.
+    }
+    throw error;
   }
+}
+
+/** Complete a tag write interrupted between the manifest and index commits. */
+function recoverInterruptedTagTransaction(): void {
+  const journalPath = tagJournalPath();
+  if (!fs.existsSync(journalPath)) return;
+
+  const journal = parseYaml(fs.readFileSync(journalPath, 'utf-8')) as TagTransactionJournal;
+  const currentManifest = manifestExists(journal.name) ? readManifest(journal.name) : null;
+  const manifestReachedNextState = sameTags(currentManifest?.tags, journal.nextManifest?.tags);
+
+  if (manifestReachedNextState) {
+    writeTagsFile(journal.nextTagsFile);
+  } else {
+    if (journal.originalManifest) writeManifest(journal.name, journal.originalManifest);
+    writeTagsFile(journal.originalTagsFile);
+  }
+  fs.rmSync(journalPath, { force: true });
+}
+
+function sameTags(left: string[] | undefined, right: string[] | undefined): boolean {
+  return JSON.stringify(left ?? []) === JSON.stringify(right ?? []);
+}
+
+/** Serialize tag changes with long-running remote updates as well as tag writes. */
+function withStateAndTagsTransaction<T>(operation: () => T): T {
+  return withFileTransaction(homePath('.state'), () =>
+    withFileTransaction(tagsPath(), () => {
+      recoverInterruptedTagTransaction();
+      return operation();
+    }),
+  );
 }
 
 /**
  * 列出所有标签
  */
 export function listAllTags(): Record<string, string[]> {
-  return readTagsFile().tags;
+  return withStateAndTagsTransaction(() => readTagsFile().tags);
 }
 
 /**
  * 列出指定标签下的 skill
  */
 export function listSkillsByTag(tag: string): string[] {
-  const tagsFile = readTagsFile();
-  return tagsFile.tags[tag] ?? [];
+  return withStateAndTagsTransaction(() => readTagsFile().tags[tag] ?? []);
 }
 
 /**

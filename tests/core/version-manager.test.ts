@@ -94,6 +94,31 @@ describe('备份与恢复', () => {
     expect(fs.existsSync(path.join(backupPath, 'script.sh'))).toBe(true);
   });
 
+  it('createBackup only retains the configured maximum number of backups', () => {
+    const ctx = createTestContext();
+    for (let index = 0; index < 6; index++) {
+      createBackup(ctx, 'my-skill');
+    }
+
+    expect(listBackups('my-skill')).toHaveLength(5);
+  });
+
+  it('createBackup honors a custom maxBackups value', () => {
+    const ctx = createTestContext({ config: { logLevel: 'info', version: { maxBackups: 2 } } });
+    for (let index = 0; index < 3; index++) {
+      createBackup(ctx, 'my-skill');
+    }
+
+    expect(listBackups('my-skill')).toHaveLength(2);
+  });
+
+  it('retains the newest snapshot when maxBackups is configured as zero', () => {
+    const ctx = createTestContext({ config: { logLevel: 'info', version: { maxBackups: 0 } } });
+    createBackup(ctx, 'my-skill');
+
+    expect(listBackups('my-skill')).toHaveLength(1);
+  });
+
   it('createBackup 更新 manifest.lastBackup', () => {
     const ctx = createTestContext();
     createBackup(ctx, 'my-skill');

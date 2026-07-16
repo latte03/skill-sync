@@ -18,12 +18,12 @@ import path from 'node:path';
 import os from 'node:os';
 import crypto from 'node:crypto';
 import { readManifest, writeManifest, manifestExists, createManifestFromFrontmatter } from '../lib/manifest.js';
-import { readLock, writeLock, getLockEntry, setLockEntry, removeLockEntry, getAllLockSkillNames } from '../lib/lock.js';
+import { readLock, writeLock, getLockEntry, setLockEntry, updateLockEntry, removeLockEntry, getAllLockSkillNames } from '../lib/lock.js';
 import { parseFrontmatter, extractVersion, hasXmlBrackets } from '../lib/frontmatter.js';
 import { sanitizeMetadata, sanitizeName, isPathSafe } from '../lib/sanitize.js';
 import { getAgentSkillDir, getAgents } from '../lib/agents.js';
 import { skillRepoPath, skillMdPath, backupDirPath, skillsDirPath } from '../lib/paths.js';
-import { LOCKFILE_VERSION, BACKUP_DIR } from '../lib/constants.js';
+import { DEFAULT_MAX_BACKUPS, LOCKFILE_VERSION, BACKUP_DIR } from '../lib/constants.js';
 import { copyDirRecursive } from '../lib/fs-utils.js';
 import type {
   SkillSyncContext,
@@ -302,13 +302,14 @@ export function deploySkill(
   writeManifest(name, manifest);
 
   // 更新 lock
-  entry.distribution[agentName] = {
-    mode: deployMode,
-    distributedAt: distTarget.distributedAt,
-    sourceHash,
-    managed: true,
-  };
-  setLockEntry(name, entry);
+  updateLockEntry(name, latest => {
+    latest.distribution[agentName] = {
+      mode: deployMode,
+      distributedAt: distTarget.distributedAt,
+      sourceHash,
+      managed: true,
+    };
+  });
 }
 
 /**
@@ -379,21 +380,20 @@ export function undeploySkill(
   writeManifest(name, manifest);
 
   // 更新 lock：标记 managed = false（不删除 distribution 条目）
-  if (distInfo) {
-    entry.distribution[agentName] = {
-      ...distInfo,
-      managed: false,
-    };
-  } else {
-    // lock 中没有该 agent 的分发记录（异常状态），创建一条 unmanaged 记录
-    entry.distribution[agentName] = {
-      mode: 'copy',
-      distributedAt: new Date().toISOString(),
-      sourceHash: computeSourceHash(repoPath),
-      managed: false,
-    };
-  }
-  setLockEntry(name, entry);
+  updateLockEntry(name, latest => {
+    const latestInfo = latest.distribution[agentName];
+    if (latestInfo) {
+      latest.distribution[agentName] = { ...latestInfo, managed: false };
+    } else {
+      // lock 中没有该 agent 的分发记录（异常状态），创建一条 unmanaged 记录
+      latest.distribution[agentName] = {
+        mode: 'copy',
+        distributedAt: new Date().toISOString(),
+        sourceHash: computeSourceHash(repoPath),
+        managed: false,
+      };
+    }
+  });
 }
 
 // ==================== 导入散落 skill ====================
@@ -558,8 +558,9 @@ export function removeSkill(
     }
 
     // 更新 lock：移除该 distribution 条目
-    delete entry.distribution[agentName];
-    setLockEntry(name, entry);
+    updateLockEntry(name, latest => {
+      delete latest.distribution[agentName];
+    });
     return;
   }
 
@@ -627,6 +628,9 @@ export function createBackup(
   const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
   const backupPath = path.join(backupDir, `${entry.version}_${timestamp}`);
   copyDirRecursive(repoPath, backupPath, [BACKUP_DIR]);
+  // An update that opted into backups must retain at least the snapshot it
+  // just created; users who want no snapshot can use update --no-backup.
+  pruneBackups(backupDir, Math.max(1, ctx.config.version?.maxBackups ?? DEFAULT_MAX_BACKUPS));
 
   // 更新 manifest
   const manifest = readManifest(name);
@@ -639,6 +643,22 @@ export function createBackup(
 
   ctx.logger.debug(`  备份创建: ${backupPath}`);
   return backupPath;
+}
+
+function pruneBackups(backupDir: string, maxBackups: number): void {
+  const backups = fs.readdirSync(backupDir, { withFileTypes: true })
+    .filter(entry => entry.isDirectory())
+    .map(entry => ({
+      path: path.join(backupDir, entry.name),
+      mtimeMs: fs.statSync(path.join(backupDir, entry.name)).mtimeMs,
+      name: entry.name,
+    }))
+    .sort((a, b) => a.mtimeMs - b.mtimeMs || a.name.localeCompare(b.name));
+
+  const excess = Math.max(0, backups.length - Math.max(0, maxBackups));
+  for (const backup of backups.slice(0, excess)) {
+    fs.rmSync(backup.path, { recursive: true, force: true });
+  }
 }
 
 /**

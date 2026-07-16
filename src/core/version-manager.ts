@@ -16,7 +16,7 @@ import path from 'node:path';
 import { SkillSyncError, ExitCode } from '../lib/errors.js';
 import { getLockEntry, setLockEntry, getAllLockSkillNames, readLock } from '../lib/lock.js';
 import { readManifest, writeManifest } from '../lib/manifest.js';
-import { skillRepoPath, backupDirPath } from '../lib/paths.js';
+import { homePath, skillRepoPath, backupDirPath } from '../lib/paths.js';
 import { getAgentSkillDir } from '../lib/agents.js';
 import { getRepoTree, getSkillTreeSha, getLatestCommitHash, getDefaultBranch } from '../lib/github.js';
 import { computeSourceHash, createBackup, deploySkill, listBackups } from './skill-manager.js';
@@ -25,6 +25,7 @@ import { parseSource } from '../lib/source.js';
 import { extractVersion } from '../lib/frontmatter.js';
 import { copyDirRecursive } from '../lib/fs-utils.js';
 import { getGitHubSkillLocation } from '../lib/skill-key.js';
+import { withFileTransactionAsync } from '../lib/persistence.js';
 import type { SkillSyncContext } from './context.js';
 import type { UpdateCheckResult, UpdateResult, BackupInfo, LockEntry } from '../lib/types.js';
 
@@ -170,6 +171,7 @@ export async function updateSkill(
   }
 
   const oldVersion = entry.version;
+  const previousEntry = structuredClone(entry);
 
   // 本地来源 — 无法更新
   if (entry.source.type === 'local') {
@@ -205,77 +207,127 @@ export async function updateSkill(
     };
   }
 
-  // 在替换中央仓库前拒绝覆盖手动修改过的受管 copy，避免更新半成功。
-  assertManagedCopiesUnmodified(name, entry);
+  // Serialize tags and remote replacement so a tag change cannot land between
+  // this backup snapshot and the final metadata restore.
+  return withFileTransactionAsync(homePath('.state'), async () => {
+    // 在替换中央仓库前拒绝覆盖手动修改过的受管 copy，避免更新半成功。
+    if (!opts?.force) assertManagedCopiesUnmodified(name, entry);
 
-  // 记录当前分发状态（更新后恢复）
-  const distributionBackup = { ...entry.distribution };
+    // 记录当前分发状态（更新后恢复）
+    const distributionBackup = { ...entry.distribution };
 
-  // 1. 创建备份
-  let backupDir: string | undefined;
-  if (!opts?.noBackup) {
-    try {
-      backupDir = createBackup(ctx, name);
-      ctx.logger.debug(`  备份: ${backupDir}`);
-    } catch (e) {
-      ctx.logger.warn(`  备份失败: ${(e as Error).message}`);
-    }
-  }
-  // 备份会写入 lastBackup，因此在备份后快照所有本地管理字段。
-  const previousManifest = structuredClone(readManifest(name));
-
-  // 2. 重新安装
-  try {
-    const source = `${githubLocation.owner}/${githubLocation.repo}`;
-    const sourceStr = githubLocation.skillPath
-      ? `${source}/${githubLocation.skillPath}`
-      : source;
-
-    // 重新安装（覆盖）
-    const result = await installGitHubSkill(ctx, sourceStr, {
-      noDeploy: true,
-      ignoreDeps: true,
-      yes: true,
-      targetKey: name,
-      replaceExisting: true,
-    });
-
-    // 3. 恢复本地管理元数据，并同步仍受管的 copy 副本。
-    const newEntry = getLockEntry(name);
-    if (newEntry) {
-      newEntry.distribution = distributionBackup;
-      setLockEntry(name, newEntry);
-    }
-    const updatedManifest = readManifest(name);
-    updatedManifest.distribution = previousManifest.distribution;
-    updatedManifest.tags = previousManifest.tags;
-    updatedManifest.lastBackup = previousManifest.lastBackup;
-    updatedManifest.initialVersion = previousManifest.initialVersion;
-    writeManifest(name, updatedManifest);
-
-    for (const [agentName, distribution] of Object.entries(distributionBackup)) {
-      if (distribution.managed && distribution.mode === 'copy') {
-        deploySkill(ctx, name, agentName, { mode: 'copy' });
+    // 1. 创建备份
+    let backupDir: string | undefined;
+    if (!opts?.noBackup) {
+      try {
+        backupDir = createBackup(ctx, name);
+        ctx.logger.debug(`  备份: ${backupDir}`);
+      } catch (e) {
+        ctx.logger.warn(`  备份失败: ${(e as Error).message}`);
       }
     }
+    // 备份会写入 lastBackup，因此在备份后快照所有本地管理字段。
+    const previousManifest = structuredClone(readManifest(name));
 
-    return {
-      name,
-      success: true,
-      oldVersion,
-      newVersion: result.version,
-      backupDir,
-    };
-  } catch (e) {
-    return {
-      name,
-      success: false,
-      oldVersion,
-      newVersion: oldVersion,
-      error: (e as Error).message,
-      backupDir,
-    };
+    // 2. 重新安装
+    try {
+      const source = `${githubLocation.owner}/${githubLocation.repo}`;
+      const sourceStr = githubLocation.skillPath
+        ? `${source}/${githubLocation.skillPath}`
+        : source;
+
+      // 重新安装（覆盖）
+      const result = await installGitHubSkill(ctx, sourceStr, {
+        noDeploy: true,
+        ignoreDeps: true,
+        yes: true,
+        targetKey: name,
+        replaceExisting: true,
+      });
+
+      // 3. 恢复本地管理元数据，并同步仍受管的 copy 副本。
+      const newEntry = getLockEntry(name);
+      if (newEntry) {
+        newEntry.distribution = distributionBackup;
+        setLockEntry(name, newEntry);
+      }
+      const updatedManifest = readManifest(name);
+      updatedManifest.distribution = previousManifest.distribution;
+      updatedManifest.tags = previousManifest.tags;
+      updatedManifest.lastBackup = previousManifest.lastBackup;
+      updatedManifest.initialVersion = previousManifest.initialVersion;
+      writeManifest(name, updatedManifest);
+
+      for (const [agentName, distribution] of Object.entries(distributionBackup)) {
+        if (distribution.managed && distribution.mode === 'copy') {
+          deploySkill(ctx, name, agentName, { mode: 'copy', force: opts?.force });
+        }
+      }
+
+      return {
+        name,
+        success: true,
+        oldVersion,
+        newVersion: result.version,
+        backupDir,
+      };
+    } catch (e) {
+      let rollbackError: Error | undefined;
+      if (backupDir) {
+        try {
+          rollbackFailedUpdate(ctx, name, backupDir, previousEntry, previousManifest);
+        } catch (rollbackFailure) {
+          rollbackError = rollbackFailure as Error;
+        }
+      }
+
+      const originalError = (e as Error).message;
+      return {
+        name,
+        success: false,
+        oldVersion,
+        newVersion: oldVersion,
+        error: rollbackError
+          ? `${originalError}；自动回滚也失败: ${rollbackError.message}`
+          : backupDir
+            ? `${originalError}；已恢复更新前版本`
+            : `${originalError}；未创建备份，无法自动恢复`,
+        backupDir,
+      };
+    }
+  });
+}
+
+/** Restore the central snapshot and managed copy targets after a failed update. */
+function rollbackFailedUpdate(
+  ctx: SkillSyncContext,
+  name: string,
+  backupDir: string,
+  previousEntry: LockEntry,
+  previousManifest: ReturnType<typeof readManifest>,
+): void {
+  const repoPath = skillRepoPath(name);
+  if (fs.existsSync(repoPath)) {
+    for (const child of fs.readdirSync(repoPath)) {
+      if (child !== '.backup') fs.rmSync(path.join(repoPath, child), { recursive: true, force: true });
+    }
   }
+  copyDirRecursive(backupDir, repoPath, ['.backup']);
+  writeManifest(name, previousManifest);
+  setLockEntry(name, previousEntry);
+
+  for (const [agentName, distribution] of Object.entries(previousEntry.distribution)) {
+    if (!distribution.managed || distribution.mode !== 'copy') continue;
+    const destination = path.join(getAgentSkillDir(agentName), name);
+    try {
+      fs.rmSync(destination, { recursive: true, force: true });
+      copyDirRecursive(backupDir, destination, ['.backup']);
+    } catch (error) {
+      throw new Error(`恢复 ${agentName} 副本失败: ${(error as Error).message}`);
+    }
+  }
+
+  ctx.logger.warn(`  更新失败，已从备份恢复 ${name}`);
 }
 
 function assertManagedCopiesUnmodified(name: string, entry: LockEntry): void {

@@ -13,12 +13,14 @@
 import fs from 'node:fs';
 import { lockPath } from './paths.js';
 import { LOCKFILE_VERSION, getCliVersion } from './constants.js';
+import { atomicWriteFile, withFileTransaction } from './persistence.js';
 import type { LockFile, LockEntry } from './types.js';
 
 // ── 内存缓存 ────────────────────────────────────────
 
 let cachedLock: LockFile | null = null;
 let cachedPath: string | null = null;
+let cachedFingerprint: string | null = null;
 
 /**
  * 清除 lock 缓存
@@ -29,6 +31,7 @@ let cachedPath: string | null = null;
 export function clearLockCache(): void {
   cachedLock = null;
   cachedPath = null;
+  cachedFingerprint = null;
 }
 
 // ── 核心 I/O ────────────────────────────────────────
@@ -41,27 +44,18 @@ export function clearLockCache(): void {
  */
 export function readLock(): LockFile {
   const p = lockPath();
+  const fingerprint = getFileFingerprint(p);
 
-  // 缓存命中（路径一致）
-  if (cachedPath === p && cachedLock !== null) {
+  // 缓存命中（路径和磁盘版本一致）。保留缓存，同时能感知其他进程的原子替换。
+  if (cachedPath === p && cachedFingerprint === fingerprint && cachedLock !== null) {
     return cachedLock;
   }
 
-  let lock: LockFile;
-  if (!fs.existsSync(p)) {
-    lock = {
-      lockfileVersion: LOCKFILE_VERSION,
-      generatedAt: new Date().toISOString(),
-      generator: `skill-sync v${getCliVersion()}`,
-      skills: {},
-    };
-  } else {
-    const raw = fs.readFileSync(p, 'utf-8');
-    lock = JSON.parse(raw) as LockFile;
-  }
+  const lock = readLockFromDisk(p);
 
   cachedLock = lock;
   cachedPath = p;
+  cachedFingerprint = fingerprint;
   return lock;
 }
 
@@ -72,11 +66,48 @@ export function readLock(): LockFile {
  */
 export function writeLock(data: LockFile): void {
   const p = lockPath();
+  withFileTransaction(p, () => persistLock(p, data));
+}
+
+/** Execute one read-modify-write transaction against the latest lock data. */
+export function updateLock(mutator: (lock: LockFile) => void): LockFile {
+  const p = lockPath();
+  return withFileTransaction(p, () => {
+    const lock = readLockFromDisk(p);
+    mutator(lock);
+    persistLock(p, lock);
+    return lock;
+  });
+}
+
+function persistLock(p: string, data: LockFile): void {
   data.generatedAt = new Date().toISOString();
   data.generator = `skill-sync v${getCliVersion()}`;
-  fs.writeFileSync(p, JSON.stringify(data, null, 2) + '\n', 'utf-8');
+  atomicWriteFile(p, JSON.stringify(data, null, 2) + '\n');
   cachedLock = data;
   cachedPath = p;
+  cachedFingerprint = getFileFingerprint(p);
+}
+
+function readLockFromDisk(p: string): LockFile {
+  if (!fs.existsSync(p)) {
+    return {
+      lockfileVersion: LOCKFILE_VERSION,
+      generatedAt: new Date().toISOString(),
+      generator: `skill-sync v${getCliVersion()}`,
+      skills: {},
+    };
+  }
+  return JSON.parse(fs.readFileSync(p, 'utf-8')) as LockFile;
+}
+
+function getFileFingerprint(p: string): string {
+  try {
+    const stat = fs.statSync(p);
+    return `${stat.ino}:${stat.mtimeMs}:${stat.size}`;
+  } catch {
+    return 'missing';
+  }
 }
 
 // ── 便捷方法 ────────────────────────────────────────
@@ -86,25 +117,40 @@ export function writeLock(data: LockFile): void {
  */
 export function getLockEntry(name: string): LockEntry | null {
   const lock = readLock();
-  return lock.skills[name] ?? null;
+  const entry = lock.skills[name];
+  return entry ? structuredClone(entry) : null;
 }
 
 /**
  * 设置/更新 lock 中的某个 skill 条目
  */
 export function setLockEntry(name: string, entry: LockEntry): void {
-  const lock = readLock();
-  lock.skills[name] = entry;
-  writeLock(lock);
+  updateLock(lock => {
+    // Callers that replace an entry (notably remove/update rollback) need an
+    // exact snapshot write; implicit merging can resurrect removed targets.
+    lock.skills[name] = structuredClone(entry);
+  });
+}
+
+/** Atomically update just one current lock entry without stale read-modify-write. */
+export function updateLockEntry(name: string, mutator: (entry: LockEntry) => void): LockEntry {
+  let updated: LockEntry | undefined;
+  updateLock(lock => {
+    const entry = lock.skills[name];
+    if (!entry) throw new Error(`Skill 未找到: ${name}`);
+    mutator(entry);
+    updated = structuredClone(entry);
+  });
+  return updated!;
 }
 
 /**
  * 删除 lock 中的某个 skill 条目
  */
 export function removeLockEntry(name: string): void {
-  const lock = readLock();
-  delete lock.skills[name];
-  writeLock(lock);
+  updateLock(lock => {
+    delete lock.skills[name];
+  });
 }
 
 /**

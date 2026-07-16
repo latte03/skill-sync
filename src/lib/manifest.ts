@@ -8,6 +8,7 @@
 import fs from 'node:fs';
 import { stringify as stringifyYaml, parse as parseYaml } from 'yaml';
 import { manifestPath } from './paths.js';
+import { atomicWriteFile, withFileTransaction } from './persistence.js';
 import type { Manifest } from './types.js';
 
 /**
@@ -29,10 +30,8 @@ export function readManifest(name: string): Manifest {
 export function writeManifest(name: string, data: Manifest): void {
   const p = manifestPath(name);
   // 确保目录存在
-  const dir = p.substring(0, p.lastIndexOf('/'));
-  fs.mkdirSync(dir, { recursive: true });
   const yamlStr = stringifyYaml(data, { indent: 2 });
-  fs.writeFileSync(p, yamlStr, 'utf-8');
+  withFileTransaction(p, () => atomicWriteFile(p, yamlStr));
 }
 
 /**

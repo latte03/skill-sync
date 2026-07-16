@@ -3,17 +3,21 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import fs from 'node:fs';
 import { createTestEnv, createMockSkillMd } from '../test-utils.js';
 import {
   readLock,
   writeLock,
   getLockEntry,
   setLockEntry,
+  updateLockEntry,
   removeLockEntry,
   hasLockEntry,
   getAllLockSkillNames,
 } from '../../src/lib/lock.js';
 import { LOCKFILE_VERSION } from '../../src/lib/constants.js';
+import { lockPath } from '../../src/lib/paths.js';
+import { transactionLockPath } from '../../src/lib/persistence.js';
 import type { LockFile, LockEntry } from '../../src/lib/types.js';
 
 describe('lock', () => {
@@ -114,6 +118,43 @@ describe('lock', () => {
         distribution: {},
       });
       expect(getLockEntry('local/test')!.version).toBe('2.0.0');
+    });
+
+    it('updates one current entry without losing a concurrent distribution', () => {
+      const base: LockEntry = {
+        source: { type: 'local' },
+        version: '1.0.0',
+        installedAt: '2024-01-01T00:00:00Z',
+        updatedAt: '2024-01-01T00:00:00Z',
+        distribution: {},
+      };
+      setLockEntry('local/test', base);
+      updateLockEntry('local/test', entry => {
+        entry.distribution['claude-code'] = {
+          mode: 'symlink', distributedAt: '2024-01-01T00:00:00Z', sourceHash: 'a', managed: true,
+        };
+      });
+      updateLockEntry('local/test', entry => {
+        entry.distribution.cursor = {
+          mode: 'copy', distributedAt: '2024-01-01T00:00:00Z', sourceHash: 'b', managed: true,
+        };
+      });
+
+      expect(Object.keys(getLockEntry('local/test')!.distribution)).toEqual(['claude-code', 'cursor']);
+    });
+
+    it('does not modify the existing lock when another writer holds the transaction lock', () => {
+      setLockEntry('local/test', {
+        source: { type: 'local' }, version: '1.0.0',
+        installedAt: '2024-01-01T00:00:00Z', updatedAt: '2024-01-01T00:00:00Z', distribution: {},
+      });
+      fs.writeFileSync(transactionLockPath(lockPath()), 'another writer');
+
+      expect(() => setLockEntry('local/test', {
+        source: { type: 'local' }, version: '2.0.0',
+        installedAt: '2024-01-01T00:00:00Z', updatedAt: '2024-01-02T00:00:00Z', distribution: {},
+      })).toThrow('正在被其他进程修改');
+      expect(getLockEntry('local/test')!.version).toBe('1.0.0');
     });
   });
 

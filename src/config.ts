@@ -13,6 +13,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { stringify as stringifyYaml, parse as parseYaml } from 'yaml';
 import { configPath, secretsPath, getHomeDir } from './lib/paths.js';
+import { atomicWriteFile, withFileTransaction } from './lib/persistence.js';
 import { DEFAULT_DISTRIBUTION_MODE, DEFAULT_MAX_BACKUPS, DEFAULT_NETWORK_TIMEOUT, DEFAULT_NETWORK_RETRY } from './lib/constants.js';
 import type { Config } from './lib/types.js';
 
@@ -78,22 +79,20 @@ export function readConfig(): Config {
  */
 export function writeConfig(config: Config): void {
   const p = configPath();
-  const dir = path.dirname(p);
-  if (!fs.existsSync(dir)) {
-    fs.mkdirSync(dir, { recursive: true });
-  }
-  const yamlStr = stringifyYaml(config, { indent: 2 });
-  fs.writeFileSync(p, yamlStr, 'utf-8');
+  withFileTransaction(p, () => persistConfig(p, config));
 }
 
 /**
  * 更新 config.yaml（合并写入）
  */
 export function updateConfig(partial: Partial<Config>): Config {
-  const current = readConfig();
-  const merged = deepMerge(current as unknown as Record<string, unknown>, partial as unknown as Record<string, unknown>) as Config;
-  writeConfig(merged);
-  return merged;
+  const p = configPath();
+  return withFileTransaction(p, () => {
+    const current = readConfigFromPath(p);
+    const merged = deepMerge(current as unknown as Record<string, unknown>, partial as unknown as Record<string, unknown>) as Config;
+    persistConfig(p, merged);
+    return merged;
+  });
 }
 
 /**
@@ -113,12 +112,20 @@ export function readSecrets(): Record<string, string> {
  */
 export function writeSecrets(secrets: Record<string, string>): void {
   const p = secretsPath();
-  const dir = path.dirname(p);
-  if (!fs.existsSync(dir)) {
-    fs.mkdirSync(dir, { recursive: true });
-  }
-  const yamlStr = stringifyYaml(secrets, { indent: 2 });
-  fs.writeFileSync(p, yamlStr, { encoding: 'utf-8', mode: 0o600 });
+  withFileTransaction(p, () => {
+    atomicWriteFile(p, stringifyYaml(secrets, { indent: 2 }), { mode: 0o600 });
+    fs.chmodSync(p, 0o600);
+  });
+}
+
+function readConfigFromPath(p: string): Config {
+  if (!fs.existsSync(p)) return getDefaultConfig();
+  const parsed = (parseYaml(fs.readFileSync(p, 'utf-8')) as Config) ?? {};
+  return { ...getDefaultConfig(), ...parsed };
+}
+
+function persistConfig(p: string, config: Config): void {
+  atomicWriteFile(p, stringifyYaml(config, { indent: 2 }));
 }
 
 /**
