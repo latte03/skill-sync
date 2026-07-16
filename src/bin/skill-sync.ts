@@ -27,16 +27,14 @@ import { doctorCommand } from '../commands/doctor.js';
 import { syncCommand } from '../commands/sync.js';
 import { uiCommand } from '../commands/ui.js';
 import { checkGitignoreCommand } from '../commands/check-gitignore.js';
-import { recoverInterruptedRemoval } from '../core/distribution-transaction.js';
-import { homePath } from '../lib/paths.js';
-import { withFileTransaction } from '../lib/persistence.js';
+import { recoverManagedState } from '../core/state-recovery.js';
 
 const program = new Command();
 
 // Complete or roll back an interrupted destructive removal before any command
 // observes the managed state.
 program.hook('preAction', () => {
-  withFileTransaction(homePath('.state'), () => recoverInterruptedRemoval());
+  recoverManagedState();
 });
 
 program

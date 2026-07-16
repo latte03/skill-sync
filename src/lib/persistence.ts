@@ -10,6 +10,30 @@ import path from 'node:path';
 
 const STALE_TRANSACTION_LOCK_MS = 5 * 60 * 1000;
 
+/** Stable error code for a conflicting durable-state transaction. */
+export const STATE_LOCKED_CODE = 'STATE_LOCKED';
+
+/**
+ * Raised when another process currently owns a durable-state transaction.
+ *
+ * The typed error keeps the core independent from HTTP while allowing callers
+ * such as the API to present this expected, retryable condition as a 409.
+ */
+export class StateLockConflictError extends Error {
+  readonly code = STATE_LOCKED_CODE;
+
+  constructor(filePath: string) {
+    super(`状态文件正在被其他进程修改: ${filePath}`);
+    this.name = 'StateLockConflictError';
+  }
+}
+
+export function isStateLockConflictError(error: unknown): error is StateLockConflictError {
+  return error instanceof StateLockConflictError ||
+    (typeof error === 'object' && error !== null &&
+      'code' in error && (error as { code?: unknown }).code === STATE_LOCKED_CODE);
+}
+
 export interface AtomicWriteOptions {
   mode?: number;
 }
@@ -117,7 +141,7 @@ function acquireTransactionLock(filePath: string, lockPath: string): { descripto
       if ((retryError as NodeJS.ErrnoException).code !== 'EEXIST') throw retryError;
     }
 
-    throw new Error(`状态文件正在被其他进程修改: ${filePath}`);
+    throw new StateLockConflictError(filePath);
   }
 }
 

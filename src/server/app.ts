@@ -60,11 +60,29 @@ import {
 } from '../lib/ai-provider.js';
 import { readLock } from '../lib/lock.js';
 import { getHomeDir, skillMdPath, skillRepoPath } from '../lib/paths.js';
+import { recoverManagedState } from '../core/state-recovery.js';
+import { apiError } from './api-error.js';
 
 const app = new Hono();
 
 // CORS — 开发时 Vite dev server 和 Hono 在不同端口
 app.use('/api/*', cors());
+
+// Match the CLI pre-action lifecycle before any API state change, even when
+// the Hono app is embedded or started without `skill-sync ui`.
+app.use('/api/*', async (c, next) => {
+  if (!['POST', 'PUT', 'PATCH', 'DELETE'].includes(c.req.method)) {
+    await next();
+    return;
+  }
+
+  try {
+    recoverManagedState();
+    await next();
+  } catch (error) {
+    return apiError(c, error);
+  }
+});
 
 // ─── 健康检查 ─────────────────────────────────────
 app.get('/api/health', (c) => {
@@ -106,7 +124,7 @@ app.get('/api/status', (c) => {
       installedAgents,
     });
   } catch (e) {
-    return c.json({ error: (e as Error).message }, 500);
+    return apiError(c, e);
   }
 });
 
@@ -133,7 +151,7 @@ app.get('/api/skills', (c) => {
 
     return c.json({ skills });
   } catch (e) {
-    return c.json({ error: (e as Error).message }, 500);
+    return apiError(c, e);
   }
 });
 
@@ -170,7 +188,7 @@ app.get('/api/skill/detail', (c) => {
 
     return c.json({ skill: detail, backups, skillMd });
   } catch (e) {
-    return c.json({ error: (e as Error).message }, 500);
+    return apiError(c, e);
   }
 });
 
@@ -321,7 +339,7 @@ app.post('/api/skill/deploy', (c) => {
 
     return c.json({ success: true });
   } catch (e) {
-    return c.json({ error: (e as Error).message }, 500);
+    return apiError(c, e);
   }
 });
 
@@ -347,7 +365,7 @@ app.post('/api/skill/undeploy', (c) => {
 
     return c.json({ success: true });
   } catch (e) {
-    return c.json({ error: (e as Error).message }, 500);
+    return apiError(c, e);
   }
 });
 
@@ -668,7 +686,7 @@ app.delete('/api/skill', (c) => {
 
     return c.json({ success: true });
   } catch (e) {
-    return c.json({ error: (e as Error).message }, 500);
+    return apiError(c, e);
   }
 });
 

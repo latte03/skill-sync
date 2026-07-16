@@ -2,7 +2,7 @@
  * HTTP API 层单元测试
  */
 
-import { describe, it, expect, vi } from 'vitest';
+import { afterEach, beforeEach, describe, it, expect, vi } from 'vitest';
 import os from 'node:os';
 import path from 'node:path';
 import fs from 'node:fs';
@@ -23,8 +23,22 @@ vi.mock('../../src/lib/paths.js', async (importOriginal) => {
 
 // 在 mock 之后导入 app
 const { app } = await import('../../src/server/app.js');
+const { beginRemovalJournal } = await import('../../src/core/distribution-transaction.js');
+const { setLockEntry, removeLockEntry } = await import('../../src/lib/lock.js');
+const { homePath } = await import('../../src/lib/paths.js');
+const { transactionLockPath } = await import('../../src/lib/persistence.js');
 
 describe('HTTP API', () => {
+  beforeEach(() => {
+    process.env.SKILL_SYNC_HOME = tmpDir;
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+    fs.mkdirSync(path.join(tmpDir, 'skills'), { recursive: true });
+  });
+
+  afterEach(() => {
+    delete process.env.SKILL_SYNC_HOME;
+  });
+
   it('GET /api/health 返回 ok', async () => {
     const res = await app.request('/api/health');
     expect(res.status).toBe(200);
@@ -127,5 +141,48 @@ describe('HTTP API', () => {
 
     expect(res.status).not.toBe(404);
     expect(res.status).toBe(500);
+  });
+
+  it('recovers an interrupted deletion before serving an embedded API request', async () => {
+    const destination = path.join(tmpDir, 'agent-skill');
+    const previous = path.join(tmpDir, '.agent-skill.distribution-previous-crash');
+    fs.mkdirSync(destination);
+    fs.writeFileSync(path.join(destination, 'SKILL.md'), 'original');
+    setLockEntry('local/test', {
+      source: { type: 'local' },
+      version: '1.0.0',
+      installedAt: '2024-01-01T00:00:00Z',
+      updatedAt: '2024-01-01T00:00:00Z',
+      distribution: {},
+    });
+    const journal = beginRemovalJournal('local/test');
+    journal.prepareMove(destination, previous);
+    fs.renameSync(destination, previous);
+
+    const res = await app.request('/api/skill/deploy?name=local%2Ftest&agents=claude-code', {
+      method: 'POST',
+    });
+
+    // The intentionally incomplete test skill fails deployment after recovery.
+    expect(res.status).toBe(500);
+    expect(fs.readFileSync(path.join(destination, 'SKILL.md'), 'utf-8')).toBe('original');
+    expect(fs.existsSync(previous)).toBe(false);
+    removeLockEntry('local/test');
+  });
+
+  it.each([
+    ['/api/skill/deploy?name=local%2Ftest&agents=claude-code', { method: 'POST' }],
+    ['/api/skill/undeploy?name=local%2Ftest&agents=claude-code', { method: 'POST' }],
+    ['/api/skill?name=local%2Ftest&scope=all', { method: 'DELETE' }],
+  ])('returns 409 STATE_LOCKED for a conflicting write: %s', async (url, init) => {
+    const lockFile = transactionLockPath(homePath('.state'));
+    fs.writeFileSync(lockFile, `${process.pid}:active-api-test`);
+
+    const res = await app.request(url, init);
+    const data = await res.json();
+
+    expect(res.status).toBe(409);
+    expect(data).toMatchObject({ code: 'STATE_LOCKED' });
+    expect(fs.existsSync(lockFile)).toBe(true);
   });
 });

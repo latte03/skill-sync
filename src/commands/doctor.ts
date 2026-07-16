@@ -25,8 +25,7 @@ import { readLock } from '../lib/lock.js';
 import { getAgents } from '../lib/agents.js';
 import { formatError } from '../lib/errors.js';
 import { checkGitignoreRules } from './check-gitignore.js';
-import { recoverInterruptedRemoval } from '../core/distribution-transaction.js';
-import { withFileTransaction } from '../lib/persistence.js';
+import { recoverManagedState } from '../core/state-recovery.js';
 
 interface CheckResult {
   name: string;
@@ -41,7 +40,7 @@ export function doctorCommand(): void {
   const results: CheckResult[] = [];
 
   try {
-    const recovery = withFileTransaction(path.join(getHomeDir(), '.state'), () => recoverInterruptedRemoval());
+    const recovery = recoverManagedState();
     if (recovery.restored > 0 || recovery.cleaned > 0) {
       results.push({
         name: '删除事务恢复',

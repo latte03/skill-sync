@@ -9,7 +9,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { getLockEntry } from '../lib/lock.js';
 import { homePath, lockPath, manifestPath } from '../lib/paths.js';
-import { atomicWriteFile, transactionLockPath } from '../lib/persistence.js';
+import { atomicWriteFile, StateLockConflictError, transactionLockPath } from '../lib/persistence.js';
 
 export interface ReplacedDestination {
   commit(): void;
@@ -72,7 +72,7 @@ export function assertDistributionStateUnlocked(name: string): void {
   const locked = [manifestPath(name), lockPath()]
     .map(transactionLockPath)
     .find(fs.existsSync);
-  if (locked) throw new Error(`状态文件正在被其他进程修改: ${locked.slice(0, -'.lock'.length)}`);
+  if (locked) throw new StateLockConflictError(locked.slice(0, -'.lock'.length));
 }
 
 /**
