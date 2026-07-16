@@ -22,9 +22,10 @@ import { readLock, writeLock, getLockEntry, setLockEntry, updateLockEntry, remov
 import { parseFrontmatter, extractVersion, hasXmlBrackets } from '../lib/frontmatter.js';
 import { sanitizeMetadata, sanitizeName, isPathSafe } from '../lib/sanitize.js';
 import { getAgentSkillDir, getAgents } from '../lib/agents.js';
-import { skillRepoPath, skillMdPath, backupDirPath, skillsDirPath } from '../lib/paths.js';
+import { skillRepoPath, skillMdPath, backupDirPath, skillsDirPath, homePath, lockPath, manifestPath } from '../lib/paths.js';
 import { DEFAULT_MAX_BACKUPS, LOCKFILE_VERSION, BACKUP_DIR } from '../lib/constants.js';
 import { copyDirRecursive } from '../lib/fs-utils.js';
+import { transactionLockPath, withFileTransaction } from '../lib/persistence.js';
 import type {
   SkillSyncContext,
 } from './context.js';
@@ -211,8 +212,14 @@ export function deploySkill(
   ctx: SkillSyncContext,
   name: string,
   agentName: string,
-  opts?: { mode?: UserDeployMode; force?: boolean },
+  opts?: { mode?: UserDeployMode; force?: boolean; stateLockHeld?: boolean },
 ): void {
+  if (!opts?.stateLockHeld) {
+    return withFileTransaction(homePath('.state'), () =>
+      deploySkill(ctx, name, agentName, { ...opts, stateLockHeld: true }),
+    );
+  }
+
   const entry = getLockEntry(name);
   if (!entry) {
     throw new Error(`Skill 未找到: ${name}`);
@@ -224,6 +231,7 @@ export function deploySkill(
     throw new Error(`无法读取 skill 的 manifest: ${name}`);
   }
   const manifest = resolved.manifest;
+  const originalManifest = structuredClone(manifest);
   const repoPath = skillRepoPath(name);
   const skillName = manifest.name;
 
@@ -277,8 +285,6 @@ export function deploySkill(
     return;
   }
 
-  createLink(repoPath, destPath, deployMode);
-
   // 更新 manifest
   const sourceHash = computeSourceHash(repoPath);
   const distTarget: DistributionTarget = {
@@ -299,17 +305,30 @@ export function deploySkill(
     manifest.distribution.targets.push(distTarget);
   }
   manifest.distribution.mode = deployMode;
-  writeManifest(name, manifest);
 
-  // 更新 lock
-  updateLockEntry(name, latest => {
-    latest.distribution[agentName] = {
-      mode: deployMode,
-      distributedAt: distTarget.distributedAt,
-      sourceHash,
-      managed: true,
-    };
-  });
+  assertDistributionStateUnlocked(name);
+  const destination = replaceDestination(destPath, () => createLink(repoPath, destPath, deployMode));
+  try {
+    writeManifest(name, manifest);
+    updateLockEntry(name, latest => {
+      latest.distribution[agentName] = {
+        mode: deployMode,
+        distributedAt: distTarget.distributedAt,
+        sourceHash,
+        managed: true,
+      };
+    });
+    destination.commit();
+  } catch (error) {
+    try {
+      writeManifest(name, originalManifest);
+      destination.rollback();
+    } catch {
+      // Preserve the original state-write error; the state lock prevents
+      // another skill-sync operation from racing this best-effort recovery.
+    }
+    throw error;
+  }
 }
 
 /**
@@ -326,6 +345,14 @@ export function undeploySkill(
   name: string,
   agentName: string,
 ): void {
+  return withFileTransaction(homePath('.state'), () => undeploySkillWithStateLock(ctx, name, agentName));
+}
+
+function undeploySkillWithStateLock(
+  ctx: SkillSyncContext,
+  name: string,
+  agentName: string,
+): void {
   const entry = getLockEntry(name);
   if (!entry) {
     throw new Error(`Skill 未找到: ${name}`);
@@ -337,6 +364,7 @@ export function undeploySkill(
     throw new Error(`无法读取 skill 的 manifest: ${name}`);
   }
   const manifest = resolved.manifest;
+  const originalManifest = structuredClone(manifest);
   const repoPath = skillRepoPath(name);
   const skillName = manifest.name;
 
@@ -362,38 +390,87 @@ export function undeploySkill(
   const distInfo = entry.distribution[agentName];
   const currentMode = distInfo?.mode;
 
-  if (destLstat.isSymbolicLink()) {
-    // symlink/junction 模式：解除链接 → 复制中央仓库内容到 Agent 目录
-    removeLink(destPath);
-    copyDirRecursive(repoPath, destPath, ['.backup']);
-    ctx.logger.debug(`  ${agentName}: 解除链接并复制副本到 ${destPath}`);
-  } else {
-    // copy 模式或被用户替换的旧链接：保持现有目录，绝不覆盖手动内容。
-    ctx.logger.debug(`  ${agentName}: 保留现有副本或手动目录（记录模式: ${currentMode ?? 'unknown'}）`);
-  }
-
   // 更新 manifest：标记 managed = false（不删除 target）
   const targetIdx = manifest.distribution.targets.findIndex(t => t.agent === agentName);
   if (targetIdx >= 0) {
     manifest.distribution.targets[targetIdx]!.managed = false;
   }
-  writeManifest(name, manifest);
-
-  // 更新 lock：标记 managed = false（不删除 distribution 条目）
-  updateLockEntry(name, latest => {
-    const latestInfo = latest.distribution[agentName];
-    if (latestInfo) {
-      latest.distribution[agentName] = { ...latestInfo, managed: false };
-    } else {
-      // lock 中没有该 agent 的分发记录（异常状态），创建一条 unmanaged 记录
-      latest.distribution[agentName] = {
-        mode: 'copy',
-        distributedAt: new Date().toISOString(),
-        sourceHash: computeSourceHash(repoPath),
-        managed: false,
-      };
+  assertDistributionStateUnlocked(name);
+  const destination = destLstat.isSymbolicLink()
+    ? replaceDestination(destPath, () => copyDirRecursive(repoPath, destPath, ['.backup']))
+    : null;
+  try {
+    writeManifest(name, manifest);
+    updateLockEntry(name, latest => {
+      const latestInfo = latest.distribution[agentName];
+      if (latestInfo) {
+        latest.distribution[agentName] = { ...latestInfo, managed: false };
+      } else {
+        // lock 中没有该 agent 的分发记录（异常状态），创建一条 unmanaged 记录
+        latest.distribution[agentName] = {
+          mode: 'copy',
+          distributedAt: new Date().toISOString(),
+          sourceHash: computeSourceHash(repoPath),
+          managed: false,
+        };
+      }
+    });
+    destination?.commit();
+    if (destination) ctx.logger.debug(`  ${agentName}: 解除链接并复制副本到 ${destPath}`);
+    else ctx.logger.debug(`  ${agentName}: 保留现有副本或手动目录（记录模式: ${currentMode ?? 'unknown'}）`);
+  } catch (error) {
+    try {
+      writeManifest(name, originalManifest);
+      destination?.rollback();
+    } catch {
+      // Preserve the original state-write error.
     }
-  });
+    throw error;
+  }
+}
+
+function assertDistributionStateUnlocked(name: string): void {
+  const locked = [manifestPath(name), lockPath()]
+    .map(transactionLockPath)
+    .find(fs.existsSync);
+  if (locked) throw new Error(`状态文件正在被其他进程修改: ${locked.slice(0, -'.lock'.length)}`);
+}
+
+function replaceDestination(destination: string, createReplacement: () => void): {
+  commit: () => void;
+  rollback: () => void;
+} {
+  const previous = path.join(
+    path.dirname(destination),
+    `.${path.basename(destination)}.distribution-previous-${process.pid}-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+  );
+  let hadPrevious = false;
+  try {
+    fs.lstatSync(destination);
+    fs.renameSync(destination, previous);
+    hadPrevious = true;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+  }
+
+  try {
+    createReplacement();
+  } catch (error) {
+    // copyDirRecursive can leave a partial destination before throwing.
+    fs.rmSync(destination, { recursive: true, force: true });
+    if (hadPrevious) fs.renameSync(previous, destination);
+    throw error;
+  }
+
+  return {
+    commit: () => {
+      if (hadPrevious) fs.rmSync(previous, { recursive: true, force: true });
+    },
+    rollback: () => {
+      fs.rmSync(destination, { recursive: true, force: true });
+      if (hadPrevious) fs.renameSync(previous, destination);
+    },
+  };
 }
 
 // ==================== 导入散落 skill ====================

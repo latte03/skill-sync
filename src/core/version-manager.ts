@@ -260,7 +260,7 @@ export async function updateSkill(
 
       for (const [agentName, distribution] of Object.entries(distributionBackup)) {
         if (distribution.managed && distribution.mode === 'copy') {
-          deploySkill(ctx, name, agentName, { mode: 'copy', force: opts?.force });
+          deploySkill(ctx, name, agentName, { mode: 'copy', force: opts?.force, stateLockHeld: true });
         }
       }
 

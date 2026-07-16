@@ -4,7 +4,7 @@
  * 使用本地 skill 模拟完整生命周期
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 import { createTestContext } from '../../src/core/context.js';
@@ -18,6 +18,9 @@ import {
 } from '../../src/core/skill-manager.js';
 import { getAgentSkillDir } from '../../src/lib/agents.js';
 import { getLockEntry } from '../../src/lib/lock.js';
+import { readManifest } from '../../src/lib/manifest.js';
+import { lockPath, manifestPath } from '../../src/lib/paths.js';
+import { transactionLockPath } from '../../src/lib/persistence.js';
 import { setupTestEnv, cleanupTestEnv } from '../test-utils.js';
 
 describe('install → deploy → undeploy → remove 生命周期', () => {
@@ -117,6 +120,60 @@ describe('install → deploy → undeploy → remove 生命周期', () => {
     // list 应该为空
     const skillsAfterRemove = listSkills(ctx);
     expect(skillsAfterRemove.length).toBe(0);
+  });
+
+  it.each([
+    ['manifest', () => transactionLockPath(manifestPath('test-skill'))],
+    ['lockfile', () => transactionLockPath(lockPath())],
+  ])('deploy preflight leaves Agent and metadata unchanged when the %s lock is held', (_kind, getHeldLock) => {
+    const ctx = createTestContext();
+    installLocalSkill(ctx, path.join(testDir, 'test-skill'), { noDeploy: true, ignoreDeps: true });
+    const destination = path.join(getAgentSkillDir('claude-code'), 'test-skill');
+    const heldLock = getHeldLock();
+    fs.writeFileSync(heldLock, 'other process');
+
+    expect(() => deploySkill(ctx, 'test-skill', 'claude-code', { mode: 'copy' })).toThrow('状态文件正在被其他进程修改');
+
+    expect(fs.existsSync(destination)).toBe(false);
+    expect(getLockEntry('test-skill')?.distribution['claude-code']).toBeUndefined();
+    expect(readManifest('test-skill').distribution.targets).toEqual([]);
+  });
+
+  it('undeploy keeps the Agent symlink and metadata unchanged when a state lock is held', () => {
+    const ctx = createTestContext();
+    installLocalSkill(ctx, path.join(testDir, 'test-skill'), { noDeploy: true, ignoreDeps: true });
+    deploySkill(ctx, 'test-skill', 'claude-code', { force: true });
+    const destination = path.join(getAgentSkillDir('claude-code'), 'test-skill');
+    fs.writeFileSync(transactionLockPath(lockPath()), 'other process');
+
+    expect(() => undeploySkill(ctx, 'test-skill', 'claude-code')).toThrow('状态文件正在被其他进程修改');
+
+    expect(fs.lstatSync(destination).isSymbolicLink()).toBe(true);
+    expect(getLockEntry('test-skill')?.distribution['claude-code']?.managed).toBe(true);
+    expect(readManifest('test-skill').distribution.targets.find(target => target.agent === 'claude-code')?.managed).toBe(true);
+  });
+
+  it('deploy compensates the Agent target and manifest when the lock fails after manifest commit', () => {
+    const ctx = createTestContext();
+    installLocalSkill(ctx, path.join(testDir, 'test-skill'), { noDeploy: true, ignoreDeps: true });
+    const destination = path.join(getAgentSkillDir('claude-code'), 'test-skill');
+    const originalRename = fs.renameSync.bind(fs);
+    let injected = false;
+    const renameSpy = vi.spyOn(fs, 'renameSync').mockImplementation((from, to) => {
+      const result = originalRename(from, to);
+      if (!injected && path.resolve(String(to)) === manifestPath('test-skill')) {
+        injected = true;
+        fs.writeFileSync(transactionLockPath(lockPath()), 'other process');
+      }
+      return result;
+    });
+
+    expect(() => deploySkill(ctx, 'test-skill', 'claude-code', { mode: 'copy' })).toThrow('状态文件正在被其他进程修改');
+    renameSpy.mockRestore();
+
+    expect(fs.existsSync(destination)).toBe(false);
+    expect(getLockEntry('test-skill')?.distribution['claude-code']).toBeUndefined();
+    expect(readManifest('test-skill').distribution.targets).toEqual([]);
   });
 
   it('remove --central 保留 Agent 副本', () => {
