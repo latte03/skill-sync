@@ -25,7 +25,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { createContext } from '../core/context.js';
-import { listSkills, getSkillDetail, deploySkill, undeploySkill, removeSkill, listBackups } from '../core/skill-manager.js';
+import { listSkills, getSkillDetail, deploySkills, undeploySkills, removeSkill, listBackups } from '../core/skill-manager.js';
 import { installGitHubSkill, installLocalSkill } from '../core/installer.js';
 import { checkAllUpdates, checkForUpdate } from '../core/version-manager.js';
 import {
@@ -333,9 +333,7 @@ app.post('/api/skill/deploy', (c) => {
       return c.json({ error: '请指定至少一个 Agent' }, 400);
     }
 
-    for (const agentName of agents) {
-      deploySkill(ctx, name, agentName, { mode: 'symlink' });
-    }
+    deploySkills(ctx, name, agents, { mode: 'symlink' });
 
     return c.json({ success: true });
   } catch (e) {
@@ -359,9 +357,7 @@ app.post('/api/skill/undeploy', (c) => {
       return c.json({ error: '请指定至少一个 Agent' }, 400);
     }
 
-    for (const agentName of agents) {
-      undeploySkill(ctx, name, agentName);
-    }
+    undeploySkills(ctx, name, agents);
 
     return c.json({ success: true });
   } catch (e) {

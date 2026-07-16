@@ -11,7 +11,9 @@ import { createTestContext } from '../../src/core/context.js';
 import { installLocalSkill } from '../../src/core/installer.js';
 import {
   deploySkill,
+  deploySkills,
   undeploySkill,
+  undeploySkills,
   removeSkill,
   getSkillDetail,
   listSkills,
@@ -174,6 +176,52 @@ describe('install → deploy → undeploy → remove 生命周期', () => {
     expect(fs.existsSync(destination)).toBe(false);
     expect(getLockEntry('test-skill')?.distribution['claude-code']).toBeUndefined();
     expect(readManifest('test-skill').distribution.targets).toEqual([]);
+  });
+
+  it('batch deploy restores all Agent targets when a later replacement fails', () => {
+    const ctx = createTestContext();
+    installLocalSkill(ctx, path.join(testDir, 'test-skill'), { noDeploy: true, ignoreDeps: true });
+    deploySkills(ctx, 'test-skill', ['claude-code', 'cursor'], { force: true });
+    const claudeDestination = path.join(getAgentSkillDir('claude-code'), 'test-skill');
+    const cursorDestination = path.join(getAgentSkillDir('cursor'), 'test-skill');
+    const originalRename = fs.renameSync.bind(fs);
+    const renameSpy = vi.spyOn(fs, 'renameSync').mockImplementation((from, to) => {
+      if (path.resolve(String(from)) === cursorDestination) throw new Error('injected cursor failure');
+      return originalRename(from, to);
+    });
+
+    expect(() => deploySkills(ctx, 'test-skill', ['claude-code', 'cursor'], { mode: 'copy', force: true }))
+      .toThrow('injected cursor failure');
+    renameSpy.mockRestore();
+
+    expect(fs.lstatSync(claudeDestination).isSymbolicLink()).toBe(true);
+    expect(fs.lstatSync(cursorDestination).isSymbolicLink()).toBe(true);
+    expect(getLockEntry('test-skill')?.distribution['claude-code']?.mode).toBe('symlink');
+    expect(getLockEntry('test-skill')?.distribution.cursor?.mode).toBe('symlink');
+    expect(readManifest('test-skill').distribution.targets.every(target => target.mode === 'symlink')).toBe(true);
+  });
+
+  it('batch undeploy restores every managed link when a later replacement fails', () => {
+    const ctx = createTestContext();
+    installLocalSkill(ctx, path.join(testDir, 'test-skill'), { noDeploy: true, ignoreDeps: true });
+    deploySkills(ctx, 'test-skill', ['claude-code', 'cursor'], { force: true });
+    const claudeDestination = path.join(getAgentSkillDir('claude-code'), 'test-skill');
+    const cursorDestination = path.join(getAgentSkillDir('cursor'), 'test-skill');
+    const originalRename = fs.renameSync.bind(fs);
+    const renameSpy = vi.spyOn(fs, 'renameSync').mockImplementation((from, to) => {
+      if (path.resolve(String(from)) === cursorDestination) throw new Error('injected cursor failure');
+      return originalRename(from, to);
+    });
+
+    expect(() => undeploySkills(ctx, 'test-skill', ['claude-code', 'cursor']))
+      .toThrow('injected cursor failure');
+    renameSpy.mockRestore();
+
+    expect(fs.lstatSync(claudeDestination).isSymbolicLink()).toBe(true);
+    expect(fs.lstatSync(cursorDestination).isSymbolicLink()).toBe(true);
+    expect(getLockEntry('test-skill')?.distribution['claude-code']?.managed).toBe(true);
+    expect(getLockEntry('test-skill')?.distribution.cursor?.managed).toBe(true);
+    expect(readManifest('test-skill').distribution.targets.every(target => target.managed)).toBe(true);
   });
 
   it('remove --central 保留 Agent 副本', () => {

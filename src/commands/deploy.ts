@@ -6,7 +6,7 @@
 
 import chalk from 'chalk';
 import { createContext } from '../core/context.js';
-import { deploySkill, undeploySkill, getSkillDetail, listSkills } from '../core/skill-manager.js';
+import { deploySkills, undeploySkills, getSkillDetail, listSkills } from '../core/skill-manager.js';
 import { detectInstalledAgents, getAgentDisplayName, getSupportedAgents } from '../lib/agents.js';
 import type { UserDeployMode } from '../lib/types.js';
 
@@ -73,19 +73,23 @@ export function deployCommand(name: string | undefined, opts: {
   for (const skillName of skillNames) {
     console.log(chalk.blue(`▸ ${skillName}`));
 
-    for (const agent of targetAgents) {
-      try {
-        if (opts.dryRun) {
-          console.log(chalk.gray(`  → ${getAgentDisplayName(agent)} [dry-run]`));
-        } else {
-          deploySkill(ctx, skillName, agent, { mode: opts.mode, force: opts.force });
-          console.log(chalk.green(`  ✓ ${getAgentDisplayName(agent)}`));
-        }
-        success++;
-      } catch (e) {
-        console.log(chalk.red(`  ✗ ${getAgentDisplayName(agent)}: ${(e as Error).message}`));
-        failed++;
+    if (opts.dryRun) {
+      for (const agent of targetAgents) {
+        console.log(chalk.gray(`  → ${getAgentDisplayName(agent)} [dry-run]`));
       }
+      success += targetAgents.length;
+      continue;
+    }
+
+    try {
+      deploySkills(ctx, skillName, targetAgents, { mode: opts.mode, force: opts.force });
+      for (const agent of targetAgents) {
+        console.log(chalk.green(`  ✓ ${getAgentDisplayName(agent)}`));
+      }
+      success += targetAgents.length;
+    } catch (e) {
+      console.log(chalk.red(`  ✗ 批量分发失败，已回滚: ${(e as Error).message}`));
+      failed += targetAgents.length;
     }
   }
 
@@ -139,15 +143,15 @@ export function undeployCommand(name: string, opts: {
   let success = 0;
   let failed = 0;
 
-  for (const agent of targetAgents) {
-    try {
-      undeploySkill(ctx, name, agent);
+  try {
+    undeploySkills(ctx, name, targetAgents);
+    for (const agent of targetAgents) {
       console.log(chalk.green(`  ✓ ${getAgentDisplayName(agent)}`));
-      success++;
-    } catch (e) {
-      console.log(chalk.red(`  ✗ ${getAgentDisplayName(agent)}: ${(e as Error).message}`));
-      failed++;
     }
+    success += targetAgents.length;
+  } catch (e) {
+    console.log(chalk.red(`  ✗ 批量取消分发失败，已回滚: ${(e as Error).message}`));
+    failed += targetAgents.length;
   }
 
   console.log();

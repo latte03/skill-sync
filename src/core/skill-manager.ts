@@ -16,7 +16,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import crypto from 'node:crypto';
 import { readManifest, writeManifest, manifestExists, createManifestFromFrontmatter } from '../lib/manifest.js';
 import { readLock, writeLock, getLockEntry, setLockEntry, updateLockEntry, removeLockEntry, getAllLockSkillNames } from '../lib/lock.js';
 import { parseFrontmatter, extractVersion, hasXmlBrackets } from '../lib/frontmatter.js';
@@ -26,6 +25,12 @@ import { skillRepoPath, skillMdPath, backupDirPath, skillsDirPath, homePath } fr
 import { DEFAULT_MAX_BACKUPS, LOCKFILE_VERSION, BACKUP_DIR } from '../lib/constants.js';
 import { copyDirRecursive } from '../lib/fs-utils.js';
 import { withFileTransaction } from '../lib/persistence.js';
+import {
+  computeSourceHash,
+  createLink,
+  removeLink,
+  resolveDeployMode,
+} from './distribution-files.js';
 import {
   assertDistributionStateUnlocked,
   beginRemovalJournal,
@@ -49,103 +54,7 @@ import type {
   DistributionTarget,
 } from '../lib/types.js';
 
-// ==================== 平台检测 ====================
-
-/**
- * 解析最终的部署模式
- *
- * Windows 下 symlink 自动降级为 junction（PRD §8.2 平台兼容性）
- */
-export function resolveDeployMode(userMode: UserDeployMode | undefined): DeployMode {
-  const isWindows = process.platform === 'win32';
-  if (userMode === 'copy') return 'copy';
-  // symlink on Windows → junction
-  if (isWindows) return 'junction';
-  return 'symlink';
-}
-
-// ==================== 文件链接 ====================
-
-/**
- * 创建文件链接（symlink / junction / copy）
- */
-export function createLink(src: string, dest: string, mode: DeployMode): void {
-  // 确保目标父目录存在
-  const destDir = path.dirname(dest);
-  if (!fs.existsSync(destDir)) {
-    fs.mkdirSync(destDir, { recursive: true });
-  }
-
-  // 如果目标已存在，先删除
-  // 注意：existsSync 对 broken symlink 返回 false，需要 try-catch lstatSync
-  let destExists = false;
-  try {
-    fs.lstatSync(dest);
-    destExists = true;
-  } catch {
-    // 目标不存在，无需删除
-  }
-  if (destExists) {
-    removeLink(dest);
-  }
-
-  switch (mode) {
-    case 'symlink':
-      fs.symlinkSync(src, dest, 'dir');
-      break;
-    case 'junction':
-      // Windows junction via fs.symlinkSync with 'junction' type
-      fs.symlinkSync(src, dest, 'junction');
-      break;
-    case 'copy':
-      copyDirRecursive(src, dest);
-      break;
-  }
-}
-
-/**
- * 删除文件链接（symlink/junction 直接 unlink，copy 递归删除）
- */
-export function removeLink(dest: string): void {
-  const lstat = fs.lstatSync(dest);
-  if (lstat.isSymbolicLink()) {
-    fs.unlinkSync(dest);
-  } else if (lstat.isDirectory()) {
-    fs.rmSync(dest, { recursive: true, force: true });
-  } else {
-    fs.unlinkSync(dest);
-  }
-}
-
-// ==================== 哈希计算 ====================
-
-/**
- * 计算 skill 目录的 source_hash（SHA256）
- *
- * 基于所有文件内容（排除 .backup 目录）计算
- */
-export function computeSourceHash(dir: string): string {
-  const hash = crypto.createHash('sha256');
-  const entries = fs.readdirSync(dir, { withFileTypes: true });
-  const sortedNames = entries
-    .filter(e => e.name !== '.backup')
-    .map(e => e.name)
-    .sort();
-
-  for (const name of sortedNames) {
-    const fullPath = path.join(dir, name);
-    const stat = fs.statSync(fullPath);
-    if (stat.isDirectory()) {
-      hash.update(name + '/');
-      hash.update(computeSourceHash(fullPath));
-    } else {
-      hash.update(name);
-      const content = fs.readFileSync(fullPath);
-      hash.update(content);
-    }
-  }
-  return hash.digest('hex');
-}
+export { computeSourceHash, createLink, removeLink, resolveDeployMode } from './distribution-files.js';
 
 // ==================== Manifest 路径解析 ====================
 
@@ -220,9 +129,25 @@ export function deploySkill(
   agentName: string,
   opts?: { mode?: UserDeployMode; force?: boolean; stateLockHeld?: boolean },
 ): void {
+  deploySkills(ctx, name, [agentName], opts);
+}
+
+/**
+ * Deploy a skill to several Agents as one all-or-nothing state transition.
+ *
+ * Every destination is validated before the first replacement. Replaced
+ * directories are held aside until the common manifest and lock update has
+ * committed, so a later failure restores every earlier destination.
+ */
+export function deploySkills(
+  ctx: SkillSyncContext,
+  name: string,
+  agentNames: string[],
+  opts?: { mode?: UserDeployMode; force?: boolean; stateLockHeld?: boolean },
+): void {
   if (!opts?.stateLockHeld) {
     return withFileTransaction(homePath('.state'), () =>
-      deploySkill(ctx, name, agentName, { ...opts, stateLockHeld: true }),
+      deploySkills(ctx, name, agentNames, { ...opts, stateLockHeld: true }),
     );
   }
 
@@ -238,97 +163,115 @@ export function deploySkill(
   }
   const manifest = resolved.manifest;
   const originalManifest = structuredClone(manifest);
+  const originalLockEntry = structuredClone(entry);
   const repoPath = skillRepoPath(name);
   const skillName = manifest.name;
+  const deployMode = resolveDeployMode(opts?.mode ?? ctx.config.distributionMode);
+  const sourceHash = computeSourceHash(repoPath);
+  const plans: Array<{ agentName: string; destPath: string; distTarget: DistributionTarget }> = [];
 
-  const agentSkillDir = getAgentSkillDir(agentName);
-  const destPath = path.join(agentSkillDir, skillName);
+  for (const agentName of uniqueAgentNames(agentNames)) {
+    const agentSkillDir = getAgentSkillDir(agentName);
+    const destPath = path.join(agentSkillDir, skillName);
 
-  // 检查目标是否已存在（使用 try-catch 处理 broken symlink）
-  let destExists = false;
-  let destLstat: fs.Stats | null = null;
-  try {
-    destLstat = fs.lstatSync(destPath);
-    destExists = true;
-  } catch {
-    destExists = false;
-  }
+    // 检查目标是否已存在（使用 try-catch 处理 broken symlink）
+    let destExists = false;
+    let destLstat: fs.Stats | null = null;
+    try {
+      destLstat = fs.lstatSync(destPath);
+      destExists = true;
+    } catch {
+      destExists = false;
+    }
 
-  if (destExists && destLstat) {
-    if (!opts?.force) {
-      if (destLstat.isSymbolicLink()) {
-        // 已是 symlink，检查是否指向同一源
-        const target = fs.readlinkSync(destPath);
-        const targetPath = path.resolve(path.dirname(destPath), target);
-        if (targetPath === path.resolve(repoPath)) {
-          ctx.logger.debug(`  ${agentName}: 已分发（symlink 指向同一源），跳过`);
-          return;
-        }
-      } else {
-        const previous = entry.distribution[agentName];
-        if (previous?.managed && previous.mode === 'copy') {
-          const currentHash = computeSourceHash(destPath);
-          if (currentHash === previous.sourceHash) {
-            // 受管副本未被修改，可以安全地用新版内容覆盖。
-          } else {
-            throw new Error(`目标已被手动修改: ${destPath}（使用 --force 覆盖）`);
+    if (destExists && destLstat) {
+      if (!opts?.force) {
+        if (destLstat.isSymbolicLink()) {
+          // 已是 symlink，检查是否指向同一源
+          const target = fs.readlinkSync(destPath);
+          const targetPath = path.resolve(path.dirname(destPath), target);
+          if (targetPath === path.resolve(repoPath)) {
+            ctx.logger.debug(`  ${agentName}: 已分发（symlink 指向同一源），跳过`);
+            continue;
           }
         } else {
-          throw new Error(`目标已存在: ${destPath}（使用 --force 覆盖）`);
+          const previous = entry.distribution[agentName];
+          if (previous?.managed && previous.mode === 'copy') {
+            const currentHash = computeSourceHash(destPath);
+            if (currentHash !== previous.sourceHash) {
+              throw new Error(`目标已被手动修改: ${destPath}（使用 --force 覆盖）`);
+            }
+          } else {
+            throw new Error(`目标已存在: ${destPath}（使用 --force 覆盖）`);
+          }
+        }
+        if (destLstat.isSymbolicLink()) {
+          throw new Error(`目标已存在且指向其他来源: ${destPath}（使用 --force 覆盖）`);
         }
       }
-      if (destLstat.isSymbolicLink()) {
-        throw new Error(`目标已存在且指向其他来源: ${destPath}（使用 --force 覆盖）`);
-      }
     }
+
+    plans.push({
+      agentName,
+      destPath,
+      distTarget: {
+        agent: agentName,
+        path: destPath,
+        mode: deployMode,
+        version: entry.version,
+        distributedAt: new Date().toISOString(),
+        sourceHash,
+        managed: true,
+      },
+    });
   }
 
-  const deployMode = resolveDeployMode(opts?.mode ?? ctx.config.distributionMode);
-  ctx.logger.debug(`  分发到 ${agentName}: ${destPath} (${deployMode})`);
-
   if (ctx.dryRun) {
-    ctx.logger.info(`[dry-run] 将分发 ${name} → ${agentName} (${deployMode})`);
+    for (const plan of plans) {
+      ctx.logger.info(`[dry-run] 将分发 ${name} → ${plan.agentName} (${deployMode})`);
+    }
     return;
   }
 
-  // 更新 manifest
-  const sourceHash = computeSourceHash(repoPath);
-  const distTarget: DistributionTarget = {
-    agent: agentName,
-    path: destPath,
-    mode: deployMode,
-    version: entry.version,
-    distributedAt: new Date().toISOString(),
-    sourceHash,
-    managed: true,
-  };
+  if (plans.length === 0) return;
 
-  // 替换或添加 target
-  const existingIdx = manifest.distribution.targets.findIndex(t => t.agent === agentName);
-  if (existingIdx >= 0) {
-    manifest.distribution.targets[existingIdx] = distTarget;
-  } else {
-    manifest.distribution.targets.push(distTarget);
+  const nextManifest = structuredClone(manifest);
+  for (const plan of plans) {
+    const existingIdx = nextManifest.distribution.targets.findIndex(target => target.agent === plan.agentName);
+    if (existingIdx >= 0) {
+      nextManifest.distribution.targets[existingIdx] = plan.distTarget;
+    } else {
+      nextManifest.distribution.targets.push(plan.distTarget);
+    }
   }
-  manifest.distribution.mode = deployMode;
+  nextManifest.distribution.mode = deployMode;
 
   assertDistributionStateUnlocked(name);
-  const destination = replaceDestination(destPath, () => createLink(repoPath, destPath, deployMode));
+  const destinations: ReturnType<typeof replaceDestination>[] = [];
+  let lockUpdated = false;
   try {
-    writeManifest(name, manifest);
+    for (const plan of plans) {
+      ctx.logger.debug(`  分发到 ${plan.agentName}: ${plan.destPath} (${deployMode})`);
+      destinations.push(replaceDestination(plan.destPath, () => createLink(repoPath, plan.destPath, deployMode)));
+    }
+    writeManifest(name, nextManifest);
     updateLockEntry(name, latest => {
-      latest.distribution[agentName] = {
-        mode: deployMode,
-        distributedAt: distTarget.distributedAt,
-        sourceHash,
-        managed: true,
-      };
+      for (const plan of plans) {
+        latest.distribution[plan.agentName] = {
+          mode: deployMode,
+          distributedAt: plan.distTarget.distributedAt,
+          sourceHash,
+          managed: true,
+        };
+      }
     });
-    destination.commit();
+    lockUpdated = true;
+    for (const destination of destinations) destination.commit();
   } catch (error) {
     try {
       writeManifest(name, originalManifest);
-      destination.rollback();
+      if (lockUpdated) setLockEntry(name, originalLockEntry);
+      for (const destination of destinations.reverse()) destination.rollback();
     } catch {
       // Preserve the original state-write error; the state lock prevents
       // another skill-sync operation from racing this best-effort recovery.
@@ -351,13 +294,24 @@ export function undeploySkill(
   name: string,
   agentName: string,
 ): void {
-  return withFileTransaction(homePath('.state'), () => undeploySkillWithStateLock(ctx, name, agentName));
+  undeploySkills(ctx, name, [agentName]);
 }
 
-function undeploySkillWithStateLock(
+/** Convert multiple managed links into retained copies as one transaction. */
+export function undeploySkills(
   ctx: SkillSyncContext,
   name: string,
-  agentName: string,
+  agentNames: string[],
+): void {
+  return withFileTransaction(homePath('.state'), () =>
+    undeploySkillsWithStateLock(ctx, name, agentNames),
+  );
+}
+
+function undeploySkillsWithStateLock(
+  ctx: SkillSyncContext,
+  name: string,
+  agentNames: string[],
 ): void {
   const entry = getLockEntry(name);
   if (!entry) {
@@ -371,68 +325,92 @@ function undeploySkillWithStateLock(
   }
   const manifest = resolved.manifest;
   const originalManifest = structuredClone(manifest);
+  const originalLockEntry = structuredClone(entry);
   const repoPath = skillRepoPath(name);
   const skillName = manifest.name;
+  const plans: Array<{ agentName: string; destPath: string; replaceLink: boolean; currentMode?: DeployMode }> = [];
 
-  const agentSkillDir = getAgentSkillDir(agentName);
-  const destPath = path.join(agentSkillDir, skillName);
-
-  // existsSync 会跟随符号链接，断裂符号链接返回 false；
-  // lstatSync 不跟随链接，对断裂符号链接也能成功，仅对真正不存在的路径抛异常
-  let destLstat: fs.Stats | null = null;
-  try {
-    destLstat = fs.lstatSync(destPath);
-  } catch {
-    ctx.logger.debug(`  ${agentName}: 目标不存在，跳过`);
-    return;
+  for (const agentName of uniqueAgentNames(agentNames)) {
+    const destPath = path.join(getAgentSkillDir(agentName), skillName);
+    // lstatSync does not follow a broken link, so it still identifies a
+    // managed destination that exists only as a dangling symlink.
+    let destLstat: fs.Stats;
+    try {
+      destLstat = fs.lstatSync(destPath);
+    } catch {
+      ctx.logger.debug(`  ${agentName}: 目标不存在，跳过`);
+      continue;
+    }
+    plans.push({
+      agentName,
+      destPath,
+      replaceLink: destLstat.isSymbolicLink(),
+      currentMode: entry.distribution[agentName]?.mode,
+    });
   }
 
   if (ctx.dryRun) {
-    ctx.logger.info(`[dry-run] 将取消分发 ${name} ← ${agentName}（保留副本）`);
+    for (const plan of plans) {
+      ctx.logger.info(`[dry-run] 将取消分发 ${name} ← ${plan.agentName}（保留副本）`);
+    }
     return;
   }
 
-  // 根据当前分发模式执行不同策略
-  const distInfo = entry.distribution[agentName];
-  const currentMode = distInfo?.mode;
+  if (plans.length === 0) return;
 
-  // 更新 manifest：标记 managed = false（不删除 target）
-  const targetIdx = manifest.distribution.targets.findIndex(t => t.agent === agentName);
-  if (targetIdx >= 0) {
-    manifest.distribution.targets[targetIdx]!.managed = false;
+  const nextManifest = structuredClone(manifest);
+  for (const plan of plans) {
+    const targetIdx = nextManifest.distribution.targets.findIndex(target => target.agent === plan.agentName);
+    if (targetIdx >= 0) nextManifest.distribution.targets[targetIdx]!.managed = false;
   }
   assertDistributionStateUnlocked(name);
-  const destination = destLstat.isSymbolicLink()
-    ? replaceDestination(destPath, () => copyDirRecursive(repoPath, destPath, ['.backup']))
-    : null;
+  const destinations: Array<{ plan: typeof plans[number]; transition: ReturnType<typeof replaceDestination> }> = [];
+  let lockUpdated = false;
   try {
-    writeManifest(name, manifest);
+    for (const plan of plans) {
+      if (plan.replaceLink) {
+        destinations.push({
+          plan,
+          transition: replaceDestination(plan.destPath, () => copyDirRecursive(repoPath, plan.destPath, ['.backup'])),
+        });
+      }
+    }
+    writeManifest(name, nextManifest);
     updateLockEntry(name, latest => {
-      const latestInfo = latest.distribution[agentName];
-      if (latestInfo) {
-        latest.distribution[agentName] = { ...latestInfo, managed: false };
-      } else {
-        // lock 中没有该 agent 的分发记录（异常状态），创建一条 unmanaged 记录
-        latest.distribution[agentName] = {
-          mode: 'copy',
-          distributedAt: new Date().toISOString(),
-          sourceHash: computeSourceHash(repoPath),
-          managed: false,
-        };
+      for (const plan of plans) {
+        const latestInfo = latest.distribution[plan.agentName];
+        if (latestInfo) {
+          latest.distribution[plan.agentName] = { ...latestInfo, managed: false };
+        } else {
+          latest.distribution[plan.agentName] = {
+            mode: 'copy',
+            distributedAt: new Date().toISOString(),
+            sourceHash: computeSourceHash(repoPath),
+            managed: false,
+          };
+        }
       }
     });
-    destination?.commit();
-    if (destination) ctx.logger.debug(`  ${agentName}: 解除链接并复制副本到 ${destPath}`);
-    else ctx.logger.debug(`  ${agentName}: 保留现有副本或手动目录（记录模式: ${currentMode ?? 'unknown'}）`);
+    lockUpdated = true;
+    for (const { transition } of destinations) transition.commit();
+    for (const plan of plans) {
+      if (plan.replaceLink) ctx.logger.debug(`  ${plan.agentName}: 解除链接并复制副本到 ${plan.destPath}`);
+      else ctx.logger.debug(`  ${plan.agentName}: 保留现有副本或手动目录（记录模式: ${plan.currentMode ?? 'unknown'}）`);
+    }
   } catch (error) {
     try {
       writeManifest(name, originalManifest);
-      destination?.rollback();
+      if (lockUpdated) setLockEntry(name, originalLockEntry);
+      for (const { transition } of destinations.reverse()) transition.rollback();
     } catch {
       // Preserve the original state-write error.
     }
     throw error;
   }
+}
+
+function uniqueAgentNames(agentNames: string[]): string[] {
+  return [...new Set(agentNames)];
 }
 
 // ==================== 导入散落 skill ====================
