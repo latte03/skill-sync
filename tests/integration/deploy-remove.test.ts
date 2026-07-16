@@ -19,7 +19,7 @@ import {
 import { getAgentSkillDir } from '../../src/lib/agents.js';
 import { getLockEntry } from '../../src/lib/lock.js';
 import { readManifest } from '../../src/lib/manifest.js';
-import { lockPath, manifestPath } from '../../src/lib/paths.js';
+import { lockPath, manifestPath, skillRepoPath } from '../../src/lib/paths.js';
 import { transactionLockPath } from '../../src/lib/persistence.js';
 import { setupTestEnv, cleanupTestEnv } from '../test-utils.js';
 
@@ -213,6 +213,48 @@ describe('install → deploy → undeploy → remove 生命周期', () => {
 
     expect(fs.existsSync(path.join(claudeSkillPath, 'SKILL.md'))).toBe(true);
     expect(fs.lstatSync(claudeSkillPath).isSymbolicLink()).toBe(false);
+  });
+
+  it('remove --central leaves the central repo and Agent link intact when a state lock is held', () => {
+    const ctx = createTestContext();
+    installLocalSkill(ctx, path.join(testDir, 'test-skill'), { noDeploy: true, ignoreDeps: true });
+    deploySkill(ctx, 'test-skill', 'claude-code', { force: true });
+    const destination = path.join(getAgentSkillDir('claude-code'), 'test-skill');
+    fs.writeFileSync(transactionLockPath(lockPath()), 'other process');
+
+    expect(() => removeSkill(ctx, 'test-skill', 'central')).toThrow('状态文件正在被其他进程修改');
+
+    expect(fs.existsSync(skillRepoPath('test-skill'))).toBe(true);
+    expect(fs.lstatSync(destination).isSymbolicLink()).toBe(true);
+    expect(getLockEntry('test-skill')).not.toBeNull();
+  });
+
+  it('remove --all restores every target if the lock fails after paths are moved aside', () => {
+    const ctx = createTestContext();
+    installLocalSkill(ctx, path.join(testDir, 'test-skill'), { noDeploy: true, ignoreDeps: true });
+    deploySkill(ctx, 'test-skill', 'claude-code', { force: true });
+    deploySkill(ctx, 'test-skill', 'cursor', { force: true });
+    const repo = skillRepoPath('test-skill');
+    const claudeDestination = path.join(getAgentSkillDir('claude-code'), 'test-skill');
+    const cursorDestination = path.join(getAgentSkillDir('cursor'), 'test-skill');
+    const originalRename = fs.renameSync.bind(fs);
+    let injected = false;
+    const renameSpy = vi.spyOn(fs, 'renameSync').mockImplementation((from, to) => {
+      const result = originalRename(from, to);
+      if (!injected && path.resolve(String(from)) === repo) {
+        injected = true;
+        fs.writeFileSync(transactionLockPath(lockPath()), 'other process');
+      }
+      return result;
+    });
+
+    expect(() => removeSkill(ctx, 'test-skill', 'all')).toThrow('状态文件正在被其他进程修改');
+    renameSpy.mockRestore();
+
+    expect(fs.existsSync(repo)).toBe(true);
+    expect(fs.lstatSync(claudeDestination).isSymbolicLink()).toBe(true);
+    expect(fs.lstatSync(cursorDestination).isSymbolicLink()).toBe(true);
+    expect(getLockEntry('test-skill')).not.toBeNull();
   });
 
   it('remove --agent 仅从指定 Agent 移除', () => {

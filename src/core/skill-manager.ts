@@ -22,10 +22,11 @@ import { readLock, writeLock, getLockEntry, setLockEntry, updateLockEntry, remov
 import { parseFrontmatter, extractVersion, hasXmlBrackets } from '../lib/frontmatter.js';
 import { sanitizeMetadata, sanitizeName, isPathSafe } from '../lib/sanitize.js';
 import { getAgentSkillDir, getAgents } from '../lib/agents.js';
-import { skillRepoPath, skillMdPath, backupDirPath, skillsDirPath, homePath, lockPath, manifestPath } from '../lib/paths.js';
+import { skillRepoPath, skillMdPath, backupDirPath, skillsDirPath, homePath } from '../lib/paths.js';
 import { DEFAULT_MAX_BACKUPS, LOCKFILE_VERSION, BACKUP_DIR } from '../lib/constants.js';
 import { copyDirRecursive } from '../lib/fs-utils.js';
-import { transactionLockPath, withFileTransaction } from '../lib/persistence.js';
+import { withFileTransaction } from '../lib/persistence.js';
+import { assertDistributionStateUnlocked, replaceDestination } from './distribution-transaction.js';
 import type {
   SkillSyncContext,
 } from './context.js';
@@ -429,50 +430,6 @@ function undeploySkillWithStateLock(
   }
 }
 
-function assertDistributionStateUnlocked(name: string): void {
-  const locked = [manifestPath(name), lockPath()]
-    .map(transactionLockPath)
-    .find(fs.existsSync);
-  if (locked) throw new Error(`状态文件正在被其他进程修改: ${locked.slice(0, -'.lock'.length)}`);
-}
-
-function replaceDestination(destination: string, createReplacement: () => void): {
-  commit: () => void;
-  rollback: () => void;
-} {
-  const previous = path.join(
-    path.dirname(destination),
-    `.${path.basename(destination)}.distribution-previous-${process.pid}-${Date.now()}-${Math.random().toString(16).slice(2)}`,
-  );
-  let hadPrevious = false;
-  try {
-    fs.lstatSync(destination);
-    fs.renameSync(destination, previous);
-    hadPrevious = true;
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
-  }
-
-  try {
-    createReplacement();
-  } catch (error) {
-    // copyDirRecursive can leave a partial destination before throwing.
-    fs.rmSync(destination, { recursive: true, force: true });
-    if (hadPrevious) fs.renameSync(previous, destination);
-    throw error;
-  }
-
-  return {
-    commit: () => {
-      if (hadPrevious) fs.rmSync(previous, { recursive: true, force: true });
-    },
-    rollback: () => {
-      fs.rmSync(destination, { recursive: true, force: true });
-      if (hadPrevious) fs.renameSync(previous, destination);
-    },
-  };
-}
-
 // ==================== 导入散落 skill ====================
 
 /**
@@ -623,6 +580,9 @@ export function removeSkill(
   if (scope === 'agent' && agentName) {
     return withFileTransaction(homePath('.state'), () => removeSkillFromAgent(ctx, name, agentName));
   }
+  if (scope === 'central' || scope === 'all') {
+    return withFileTransaction(homePath('.state'), () => removeCentralSkill(ctx, name, scope));
+  }
 
   const entry = getLockEntry(name);
   if (!entry) {
@@ -633,43 +593,72 @@ export function removeSkill(
   const resolved = tryReadManifest(name);
   const skillName = resolved.manifest?.name ?? name;
 
-  if (scope === 'all') {
-    // 删除中央仓库 + 所有 Agent 分发（彻底删除，不保留副本）
-    for (const agent of Object.keys(entry.distribution)) {
-      try {
-        const agentSkillDir = getAgentSkillDir(agent);
-        const destPath = path.join(agentSkillDir, skillName);
-        fs.lstatSync(destPath);
-        removeLink(destPath);
-      } catch {
-        // 目标不存在，跳过
-      }
-    }
+  // scope 已在入口处理；保留该分支仅让非法调用显式无副作用。
+  void ctx;
+  void entry;
+  void skillName;
+}
 
-    // 删除 manifest + skill 目录
-    const repoPath = skillRepoPath(name);
-    if (fs.existsSync(repoPath)) {
-      fs.rmSync(repoPath, { recursive: true, force: true });
-    }
+/** Remove central metadata and repository only after every Agent change is reversible. */
+function removeCentralSkill(
+  ctx: SkillSyncContext,
+  name: string,
+  scope: 'central' | 'all',
+): void {
+  const entry = getLockEntry(name);
+  if (!entry) throw new Error(`Skill 未找到: ${name}`);
+  const skillName = tryReadManifest(name).manifest?.name ?? name;
+  const repoPath = skillRepoPath(name);
+  const transitions: ReturnType<typeof replaceDestination>[] = [];
 
-    // 从 lock 移除
-    removeLockEntry(name);
-  } else if (scope === 'central') {
-    // 仅删除中央仓库前，先把受管链接转换为独立副本，避免留下断裂 symlink。
+  assertDistributionStateUnlocked(name);
+  try {
     for (const [agentName, distribution] of Object.entries(entry.distribution)) {
-      if (distribution.managed) {
-        undeploySkill(ctx, name, agentName);
+      const destination = path.join(getAgentSkillDir(agentName), skillName);
+      if (scope === 'all') {
+        try {
+          fs.lstatSync(destination);
+          transitions.push(replaceDestination(destination, () => undefined));
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+        }
+        continue;
+      }
+
+      // central-only retains copies; only live managed links need converting.
+      if (!distribution.managed) continue;
+      try {
+        if (fs.lstatSync(destination).isSymbolicLink()) {
+          transitions.push(replaceDestination(destination, () => copyDirRecursive(repoPath, destination, ['.backup'])));
+        }
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
       }
     }
 
-    // Agent 下的副本保留为孤儿副本，不再管理。
-    const repoPath = skillRepoPath(name);
-    if (fs.existsSync(repoPath)) {
-      fs.rmSync(repoPath, { recursive: true, force: true });
-    }
-
-    // 从 lock 移除（Agent 分发信息随之丢失，变为不可管理的孤儿）
+    const central = replaceDestination(repoPath, () => undefined);
+    transitions.push(central);
     removeLockEntry(name);
+  } catch (error) {
+    for (const transition of transitions.reverse()) {
+      try {
+        transition.rollback();
+      } catch {
+        // Preserve the original error; the remaining moved-aside paths are safer
+        // than completing a destructive delete after a failed state update.
+      }
+    }
+    throw error;
+  }
+
+  // The durable state transition is complete. A stale retired directory is safer
+  // than rolling the operation back after users already observe it as deleted.
+  for (const transition of transitions) {
+    try {
+      transition.commit();
+    } catch (error) {
+      ctx.logger.warn(`  清理已删除的旧目录失败: ${(error as Error).message}`);
+    }
   }
 }
 
