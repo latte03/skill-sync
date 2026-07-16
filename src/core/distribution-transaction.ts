@@ -7,12 +7,64 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { lockPath, manifestPath } from '../lib/paths.js';
-import { transactionLockPath } from '../lib/persistence.js';
+import { getLockEntry } from '../lib/lock.js';
+import { homePath, lockPath, manifestPath } from '../lib/paths.js';
+import { atomicWriteFile, transactionLockPath } from '../lib/persistence.js';
 
 export interface ReplacedDestination {
   commit(): void;
   rollback(): void;
+}
+
+interface RemovalJournal {
+  name: string;
+  entries: Array<{ destination: string; previous: string }>;
+}
+
+export interface RemovalJournalHandle {
+  prepareMove(destination: string, previous: string): void;
+  clear(): void;
+}
+
+/** Durable intent log for a multi-directory central deletion. */
+export function beginRemovalJournal(name: string): RemovalJournalHandle {
+  const journal: RemovalJournal = { name, entries: [] };
+  const journalPath = removalJournalPath();
+  persistJournal(journalPath, journal);
+  return {
+    prepareMove(destination, previous) {
+      journal.entries.push({ destination, previous });
+      persistJournal(journalPath, journal);
+    },
+    clear() {
+      fs.rmSync(journalPath, { force: true });
+    },
+  };
+}
+
+/** Recover a deletion interrupted after one or more directories were moved aside. */
+export function recoverInterruptedRemoval(): { restored: number; cleaned: number } {
+  const journalPath = removalJournalPath();
+  if (!fs.existsSync(journalPath)) return { restored: 0, cleaned: 0 };
+
+  const journal = JSON.parse(fs.readFileSync(journalPath, 'utf-8')) as RemovalJournal;
+  const removalCommitted = getLockEntry(journal.name) === null;
+  let restored = 0;
+  let cleaned = 0;
+
+  for (const entry of [...journal.entries].reverse()) {
+    if (!fs.existsSync(entry.previous)) continue;
+    if (removalCommitted) {
+      fs.rmSync(entry.previous, { recursive: true, force: true });
+      cleaned++;
+    } else {
+      fs.rmSync(entry.destination, { recursive: true, force: true });
+      fs.renameSync(entry.previous, entry.destination);
+      restored++;
+    }
+  }
+  fs.rmSync(journalPath, { force: true });
+  return { restored, cleaned };
 }
 
 /** Fail before changing a directory if either durable state file is locked. */
@@ -30,6 +82,7 @@ export function assertDistributionStateUnlocked(name: string): void {
 export function replaceDestination(
   destination: string,
   createReplacement: () => void,
+  options?: { beforeMove?: (destination: string, previous: string) => void },
 ): ReplacedDestination {
   const previous = path.join(
     path.dirname(destination),
@@ -38,6 +91,7 @@ export function replaceDestination(
   let hadPrevious = false;
   try {
     fs.lstatSync(destination);
+    options?.beforeMove?.(destination, previous);
     fs.renameSync(destination, previous);
     hadPrevious = true;
   } catch (error) {
@@ -62,4 +116,12 @@ export function replaceDestination(
       if (hadPrevious) fs.renameSync(previous, destination);
     },
   };
+}
+
+function removalJournalPath(): string {
+  return homePath('.distribution-remove.transaction.json');
+}
+
+function persistJournal(journalPath: string, journal: RemovalJournal): void {
+  atomicWriteFile(journalPath, JSON.stringify(journal, null, 2) + '\n');
 }

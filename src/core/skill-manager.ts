@@ -26,7 +26,12 @@ import { skillRepoPath, skillMdPath, backupDirPath, skillsDirPath, homePath } fr
 import { DEFAULT_MAX_BACKUPS, LOCKFILE_VERSION, BACKUP_DIR } from '../lib/constants.js';
 import { copyDirRecursive } from '../lib/fs-utils.js';
 import { withFileTransaction } from '../lib/persistence.js';
-import { assertDistributionStateUnlocked, replaceDestination } from './distribution-transaction.js';
+import {
+  assertDistributionStateUnlocked,
+  beginRemovalJournal,
+  recoverInterruptedRemoval,
+  replaceDestination,
+} from './distribution-transaction.js';
 import type {
   SkillSyncContext,
 } from './context.js';
@@ -610,15 +615,18 @@ function removeCentralSkill(
   const skillName = tryReadManifest(name).manifest?.name ?? name;
   const repoPath = skillRepoPath(name);
   const transitions: ReturnType<typeof replaceDestination>[] = [];
-
   assertDistributionStateUnlocked(name);
+  recoverInterruptedRemoval();
+  const journal = beginRemovalJournal(name);
+  const transactionOptions = { beforeMove: journal.prepareMove };
+
   try {
     for (const [agentName, distribution] of Object.entries(entry.distribution)) {
       const destination = path.join(getAgentSkillDir(agentName), skillName);
       if (scope === 'all') {
         try {
           fs.lstatSync(destination);
-          transitions.push(replaceDestination(destination, () => undefined));
+          transitions.push(replaceDestination(destination, () => undefined, transactionOptions));
         } catch (error) {
           if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
         }
@@ -629,14 +637,14 @@ function removeCentralSkill(
       if (!distribution.managed) continue;
       try {
         if (fs.lstatSync(destination).isSymbolicLink()) {
-          transitions.push(replaceDestination(destination, () => copyDirRecursive(repoPath, destination, ['.backup'])));
+          transitions.push(replaceDestination(destination, () => copyDirRecursive(repoPath, destination, ['.backup']), transactionOptions));
         }
       } catch (error) {
         if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
       }
     }
 
-    const central = replaceDestination(repoPath, () => undefined);
+    const central = replaceDestination(repoPath, () => undefined, transactionOptions);
     transitions.push(central);
     removeLockEntry(name);
   } catch (error) {
@@ -648,6 +656,7 @@ function removeCentralSkill(
         // than completing a destructive delete after a failed state update.
       }
     }
+    journal.clear();
     throw error;
   }
 
@@ -660,6 +669,7 @@ function removeCentralSkill(
       ctx.logger.warn(`  清理已删除的旧目录失败: ${(error as Error).message}`);
     }
   }
+  journal.clear();
 }
 
 /** Remove one Agent target with rollback for metadata or filesystem failures. */
