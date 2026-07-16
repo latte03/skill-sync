@@ -554,32 +554,47 @@ export function importSkill(
   // 5. 可选：替换原位置为 symlink
   const deployed: string[] = [];
   if (opts?.replaceWithLink) {
-    const deployMode = resolveDeployMode(opts.mode ?? ctx.config.distributionMode);
-    removeLink(scanned.dir);
-    createLink(repoPath, scanned.dir, deployMode);
+    withFileTransaction(homePath('.state'), () => {
+      const deployMode = resolveDeployMode(opts.mode ?? ctx.config.distributionMode);
+      const originalManifest = structuredClone(manifest);
+      const originalLockEntry = structuredClone(lockEntry);
+      const distributedAt = new Date().toISOString();
+      const sourceHash = computeSourceHash(repoPath);
+      manifest.distribution.targets.push({
+        agent: scanned.agentName,
+        path: scanned.dir,
+        mode: deployMode,
+        version,
+        distributedAt,
+        sourceHash,
+        managed: true,
+      });
+      manifest.distribution.mode = deployMode;
+      lockEntry.distribution[scanned.agentName] = {
+        mode: deployMode,
+        distributedAt,
+        sourceHash,
+        managed: true,
+      };
 
-    // 更新 manifest 和 lock
-    const sourceHash = computeSourceHash(repoPath);
-    manifest.distribution.targets.push({
-      agent: scanned.agentName,
-      path: scanned.dir,
-      mode: deployMode,
-      version,
-      distributedAt: new Date().toISOString(),
-      sourceHash,
-      managed: true,
+      assertDistributionStateUnlocked(skillName);
+      const destination = replaceDestination(scanned.dir, () => createLink(repoPath, scanned.dir, deployMode));
+      try {
+        writeManifest(skillName, manifest);
+        setLockEntry(fullName, lockEntry);
+        destination.commit();
+        deployed.push(scanned.agentName);
+      } catch (error) {
+        try {
+          writeManifest(skillName, originalManifest);
+          setLockEntry(fullName, originalLockEntry);
+          destination.rollback();
+        } catch {
+          // Preserve the original state-write error.
+        }
+        throw error;
+      }
     });
-    manifest.distribution.mode = deployMode;
-    writeManifest(skillName, manifest);
-
-    lockEntry.distribution[scanned.agentName] = {
-      mode: deployMode,
-      distributedAt: new Date().toISOString(),
-      sourceHash,
-      managed: true,
-    };
-    setLockEntry(fullName, lockEntry);
-    deployed.push(scanned.agentName);
   }
 
   return {
@@ -605,6 +620,10 @@ export function removeSkill(
   scope: 'all' | 'central' | 'agent' = 'all',
   agentName?: string,
 ): void {
+  if (scope === 'agent' && agentName) {
+    return withFileTransaction(homePath('.state'), () => removeSkillFromAgent(ctx, name, agentName));
+  }
+
   const entry = getLockEntry(name);
   if (!entry) {
     throw new Error(`Skill 未找到: ${name}`);
@@ -613,33 +632,6 @@ export function removeSkill(
   // 使用 tryReadManifest 获取 manifest
   const resolved = tryReadManifest(name);
   const skillName = resolved.manifest?.name ?? name;
-
-  if (scope === 'agent' && agentName) {
-    // 仅从指定 Agent 彻底移除（删除文件 + 移除 distribution 条目）
-    // 注意：remove --agent 是彻底删除，与 undeploy（保留副本）不同
-    const agentSkillDir = getAgentSkillDir(agentName);
-    const destPath = path.join(agentSkillDir, skillName);
-    try {
-      fs.lstatSync(destPath);
-      removeLink(destPath);
-    } catch {
-      // 目标不存在，跳过
-    }
-
-    // 更新 manifest：移除该 target
-    if (resolved.manifest) {
-      resolved.manifest.distribution.targets = resolved.manifest.distribution.targets.filter(
-        t => t.agent !== agentName,
-      );
-      writeManifest(name, resolved.manifest);
-    }
-
-    // 更新 lock：移除该 distribution 条目
-    updateLockEntry(name, latest => {
-      delete latest.distribution[agentName];
-    });
-    return;
-  }
 
   if (scope === 'all') {
     // 删除中央仓库 + 所有 Agent 分发（彻底删除，不保留副本）
@@ -678,6 +670,51 @@ export function removeSkill(
 
     // 从 lock 移除（Agent 分发信息随之丢失，变为不可管理的孤儿）
     removeLockEntry(name);
+  }
+}
+
+/** Remove one Agent target with rollback for metadata or filesystem failures. */
+function removeSkillFromAgent(
+  _ctx: SkillSyncContext,
+  name: string,
+  agentName: string,
+): void {
+  const entry = getLockEntry(name);
+  if (!entry) throw new Error(`Skill 未找到: ${name}`);
+
+  const resolved = tryReadManifest(name);
+  const manifest = resolved.manifest;
+  const originalManifest = manifest ? structuredClone(manifest) : null;
+  const skillName = manifest?.name ?? name;
+  const destinationPath = path.join(getAgentSkillDir(agentName), skillName);
+
+  if (manifest) {
+    manifest.distribution.targets = manifest.distribution.targets.filter(target => target.agent !== agentName);
+  }
+
+  assertDistributionStateUnlocked(name);
+  let destination: ReturnType<typeof replaceDestination> | null = null;
+  try {
+    fs.lstatSync(destinationPath);
+    destination = replaceDestination(destinationPath, () => undefined);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+  }
+
+  try {
+    if (manifest) writeManifest(name, manifest);
+    updateLockEntry(name, latest => {
+      delete latest.distribution[agentName];
+    });
+    destination?.commit();
+  } catch (error) {
+    try {
+      if (originalManifest) writeManifest(name, originalManifest);
+      destination?.rollback();
+    } catch {
+      // Preserve the original state-write error.
+    }
+    throw error;
   }
 }
 

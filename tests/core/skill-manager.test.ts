@@ -21,6 +21,8 @@ import {
 import { resetAgentsCache } from '../../src/lib/agents.js';
 import { getLockEntry, hasLockEntry } from '../../src/lib/lock.js';
 import { manifestExists, readManifest } from '../../src/lib/manifest.js';
+import { lockPath } from '../../src/lib/paths.js';
+import { transactionLockPath } from '../../src/lib/persistence.js';
 
 describe('skill-manager', () => {
   let env: ReturnType<typeof createTestEnv>;
@@ -196,6 +198,25 @@ describe('skill-manager', () => {
 
       // 验证原位置现在是 symlink
       expect(fs.lstatSync(skillPath).isSymbolicLink()).toBe(true);
+    });
+
+    it('replaceWithLink 在状态锁被占用时保留原 Agent 目录与未分发元数据', () => {
+      const skillDir = mockAgentSkillDir(env.agentsDir, '.claude/skills');
+      const skillPath = createMockSkillDir(skillDir, 'test-skill', {
+        name: 'test-skill', version: '1.0.0',
+      });
+      const scanned = {
+        name: 'test-skill', dir: skillPath, skillMdPath: path.join(skillPath, 'SKILL.md'),
+        agentName: 'claude-code', isSymlink: false,
+      };
+      fs.writeFileSync(transactionLockPath(lockPath()), 'other process');
+
+      expect(() => importSkill(createTestContext({ homeDir: env.homeDir }), scanned, { replaceWithLink: true }))
+        .toThrow('状态文件正在被其他进程修改');
+
+      expect(fs.lstatSync(skillPath).isDirectory()).toBe(true);
+      expect(getLockEntry('test-skill')?.distribution['claude-code']).toBeUndefined();
+      expect(readManifest('test-skill').distribution.targets).toEqual([]);
     });
 
     it('dry-run 不实际操作', () => {

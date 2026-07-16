@@ -238,6 +238,20 @@ describe('install → deploy → undeploy → remove 生命周期', () => {
     expect(getSkillDetail(ctx, 'test-skill')).not.toBeNull();
   });
 
+  it('remove --agent leaves the Agent target and metadata unchanged when a state lock is held', () => {
+    const ctx = createTestContext();
+    installLocalSkill(ctx, path.join(testDir, 'test-skill'), { noDeploy: true, ignoreDeps: true });
+    deploySkill(ctx, 'test-skill', 'cursor', { force: true });
+    const destination = path.join(getAgentSkillDir('cursor'), 'test-skill');
+    fs.writeFileSync(transactionLockPath(lockPath()), 'other process');
+
+    expect(() => removeSkill(ctx, 'test-skill', 'agent', 'cursor')).toThrow('状态文件正在被其他进程修改');
+
+    expect(fs.lstatSync(destination).isSymbolicLink()).toBe(true);
+    expect(getLockEntry('test-skill')?.distribution.cursor).toBeDefined();
+    expect(readManifest('test-skill').distribution.targets.find(target => target.agent === 'cursor')).toBeDefined();
+  });
+
   it('deploy with copy mode', () => {
     const ctx = createTestContext();
 
