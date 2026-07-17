@@ -10,10 +10,10 @@ export default defineConfig({
   // Shared console primitives. Views still use Wind/Tailwind utilities for their
   // own composition; these keep the semantic, token-bound parts consistent.
   shortcuts: {
-    'app-page': 'grid w-full max-w-[96rem] mx-auto gap-8 px-4 py-8 pb-18 sm:px-8 lg:px-12',
+    'app-page': 'grid w-full max-w-[var(--content-max-width)] mx-auto gap-6 px-9 py-8 pb-16',
     'page-heading': 'grid min-w-0 gap-2',
-    'page-kicker': 'm-0 text-[0.6875rem] leading-none font-[var(--font-mono)] font-600 tracking-[0.12em] uppercase text-[var(--color-muted)]',
-    'page-title': 'm-0 font-[var(--font-display)] text-[clamp(2rem_4vw_3.25rem)] leading-[0.98] font-600 tracking-[-0.06em] text-[var(--color-ink)]',
+    'page-kicker': 'm-0 text-[0.7rem] leading-none font-[var(--font-mono)] font-600 tracking-[0.12em] uppercase text-[var(--color-muted)]',
+    'page-title': 'm-0 font-[var(--font-display)] text-[clamp(1.75rem_2.4vw_2.2rem)] leading-[1.05] font-650 tracking-[-0.045em] text-[var(--color-ink)]',
     'page-summary': 'max-w-[62ch] m-0 text-sm leading-6 text-[var(--color-muted)]',
     'page-toolbar': 'flex flex-wrap items-center gap-3',
     'action-row': 'flex flex-wrap items-center gap-3',

@@ -1,110 +1,899 @@
 <script setup lang="ts">
-import { computed, ref, shallowRef } from 'vue';
-import { useMessage } from 'naive-ui';
-import { EyeOutline, FlashOutline, RefreshOutline } from '@vicons/ionicons5';
-import { api } from '../api';
-import type { AgentInfo, SkillInfo } from '../api';
+import { computed, ref, shallowRef } from "vue";
+import { useMessage } from "naive-ui";
+import {
+  GridOutline,
+  ListOutline,
+  RefreshOutline,
+  SearchOutline,
+} from "@vicons/ionicons5";
+import { api } from "../api";
+import type { AgentInfo, SkillInfo } from "../api";
+import AgentStack from "../components/workspace/agent-stack.vue";
+import DistributionPicker from "../components/workspace/distribution-picker.vue";
+import PageHeader from "../components/ui/PageHeader.vue";
+import UiButton from "../components/ui/UiButton.vue";
 
+type Perspective = "skill" | "agent" | "matrix";
+type DistributionInput = { agents: string[]; mode: "symlink" | "copy" };
 const message = useMessage();
 const skills = ref<SkillInfo[]>([]);
 const agents = ref<AgentInfo[]>([]);
 const loading = ref(false);
-const actionOpen = shallowRef(false);
-const selectedSkill = ref<SkillInfo | null>(null);
-const selectedAgents = ref<string[]>([]);
-const mode = shallowRef<'symlink' | 'copy'>('symlink');
-const running = ref(false);
-const action = shallowRef<'deploy' | 'undeploy'>('deploy');
-const query = shallowRef('');
-
-const installedAgents = computed(() => agents.value.filter(agent => agent.installed));
-const agentOptions = computed(() => installedAgents.value.map(agent => ({ label: agent.displayName, value: agent.name })));
-const visibleSkills = computed(() => skills.value.filter(skill => !query.value.trim() || skill.name.toLowerCase().includes(query.value.trim().toLowerCase())));
+const runningSkill = shallowRef<string | null>(null);
+const query = shallowRef("");
+const perspective = shallowRef<Perspective>("skill");
+const installedAgents = computed(() =>
+  agents.value.filter((agent) => agent.installed),
+);
+const visibleSkills = computed(() => {
+  const value = query.value.trim().toLowerCase();
+  return value
+    ? skills.value.filter((skill) =>
+        `${skill.name} ${skill.description}`.toLowerCase().includes(value),
+      )
+    : skills.value;
+});
+const activeLinks = computed(() =>
+  skills.value.reduce((count, skill) => count + skill.agents.length, 0),
+);
 const coverage = computed(() => {
   const total = skills.value.length * installedAgents.value.length;
-  const active = skills.value.reduce((count, skill) => count + skill.agents.filter(agent => installedAgents.value.some(item => item.name === agent)).length, 0);
-  return { active, total };
+  return total ? Math.round((activeLinks.value / total) * 100) : 0;
 });
+const skillsForAgent = (name: string) =>
+  skills.value.filter((skill) => skill.agents.includes(name));
+const skillDisplayName = (name: string) => name.split("/").at(-1) ?? name;
+const skillNamespace = (name: string) => {
+  const index = name.lastIndexOf("/");
+  return index === -1 ? "本地工作区" : name.slice(0, index);
+};
 
 async function refresh() {
   loading.value = true;
   try {
-    const [skillsResponse, agentsResponse] = await Promise.all([api.getSkills(), api.getAgents()]);
-    skills.value = skillsResponse.skills;
-    agents.value = agentsResponse.agents;
+    const [skillResponse, agentResponse] = await Promise.all([
+      api.getSkills(),
+      api.getAgents(),
+    ]);
+    skills.value = skillResponse.skills;
+    agents.value = agentResponse.agents;
   } catch (error) {
     message.error(`加载分发状态失败: ${(error as Error).message}`);
   } finally {
     loading.value = false;
   }
 }
-
-function openAction(skill: SkillInfo, nextAction: 'deploy' | 'undeploy') {
-  selectedSkill.value = skill;
-  action.value = nextAction;
-  selectedAgents.value = nextAction === 'undeploy' ? [...skill.agents] : [];
-  actionOpen.value = true;
-}
-
-async function execute(dryRun = false) {
-  if (!selectedSkill.value || selectedAgents.value.length === 0) return;
-  running.value = true;
+async function distribute(
+  skill: SkillInfo,
+  input: DistributionInput,
+  dryRun = false,
+) {
+  runningSkill.value = skill.name;
   try {
-    if (action.value === 'deploy') await api.deploySkill(selectedSkill.value.name, selectedAgents.value, { mode: mode.value, dryRun });
-    else await api.undeploySkill(selectedSkill.value.name, selectedAgents.value, { dryRun });
-    message.success(dryRun ? '预览完成：未写入任何文件' : action.value === 'deploy' ? '分发已完成' : '取消分发已完成');
-    if (!dryRun) {
-      actionOpen.value = false;
-      await refresh();
-    }
+    await api.deploySkill(skill.name, input.agents, {
+      mode: input.mode,
+      dryRun,
+    });
+    message.success(dryRun ? "预览完成，没有写入文件" : "分发目标已添加");
+    if (!dryRun) await refresh();
   } catch (error) {
-    message.error(`操作失败: ${(error as Error).message}`);
+    message.error(`分发失败: ${(error as Error).message}`);
   } finally {
-    running.value = false;
+    runningSkill.value = null;
   }
 }
-
 refresh();
 </script>
 
 <template>
-  <div class="app-page distribution-page">
-    <header class="grid gap-6 lg:grid-cols-[minmax(0_1fr)_auto] lg:items-end">
-      <div class="page-heading"><p class="page-kicker">RELATION VIEW</p><h1 class="page-title">分发关系</h1><p class="page-summary">这是用于批量核查覆盖关系的辅助视图；日常分发请从技能库卡片右下角的 Agent 堆叠开始。</p></div>
-      <div class="page-toolbar lg:justify-end"><n-button size="small" :loading="loading" @click="refresh"><template #icon><n-icon :component="RefreshOutline" /></template>刷新矩阵</n-button></div>
-    </header>
-
-    <section class="grid gap-px overflow-clip rounded-[var(--radius-lg)] bg-[var(--color-rule)] shadow-[var(--shadow-sm)] sm:grid-cols-2 xl:grid-cols-4">
-      <div class="min-h-34 bg-[var(--color-graphite)] p-6 text-[var(--color-graphite-ink)]"><p class="m-0 text-[0.6875rem] font-[var(--font-mono)] tracking-[0.1em] uppercase text-[var(--color-graphite-ink)]/55">ACTIVE LINKS</p><strong class="mt-2 block font-[var(--font-display)] text-4xl leading-none tracking-[-0.07em]">{{ coverage.active }}</strong><span class="mt-2 block text-xs text-[var(--color-graphite-ink)]/68">有效分发</span></div>
-      <div class="min-h-34 bg-[var(--color-paper)] p-6"><p class="metric-label">POSSIBLE LINKS</p><strong class="mt-2 block font-[var(--font-display)] text-4xl leading-none tracking-[-0.07em] text-[var(--color-ink)]">{{ coverage.total }}</strong><span class="mt-2 block text-xs text-[var(--color-muted)]">可分发组合</span></div>
-      <div class="min-h-34 bg-[var(--color-paper)] p-6"><p class="metric-label">INSTALLED AGENTS</p><strong class="mt-2 block font-[var(--font-display)] text-4xl leading-none tracking-[-0.07em] text-[var(--color-ink)]">{{ installedAgents.length }}</strong><span class="mt-2 block text-xs text-[var(--color-muted)]">已检测目标</span></div>
-      <div class="flex min-h-34 items-center bg-[var(--color-paper)] p-4"><n-input v-model:value="query" clearable placeholder="筛选 Skill" /></div>
+  <div class="distribution-workspace">
+    <PageHeader
+      eyebrow="分发管理"
+      title="分发工作区"
+      summary="从 Skill 或 Agent 两个视角检查覆盖关系。"
+      ><template #actions
+        ><UiButton size="sm" :loading="loading" @click="refresh"
+          ><template #icon
+            ><n-icon :component="RefreshOutline" size="16" /></template
+          >刷新</UiButton
+        ></template
+      ></PageHeader
+    >
+    <section class="distribution-toolbar">
+      <div class="perspective-switch">
+        <button
+          :class="{ active: perspective === 'skill' }"
+          type="button"
+          @click="perspective = 'skill'"
+        >
+          <n-icon :component="GridOutline" size="13" />按 Skill</button
+        ><button
+          :class="{ active: perspective === 'agent' }"
+          type="button"
+          @click="perspective = 'agent'"
+        >
+          <n-icon :component="ListOutline" size="13" />按 Agent</button
+        ><button
+          :class="{ active: perspective === 'matrix' }"
+          type="button"
+          @click="perspective = 'matrix'"
+        >
+          关系图
+        </button>
+      </div>
+      <label
+        ><n-icon :component="SearchOutline" size="13" /><input
+          v-model="query"
+          placeholder="筛选 Skill"
+      /></label>
     </section>
-
+    <section class="distribution-metrics">
+      <article>
+        <span>有效关系</span><b>{{ activeLinks }}</b
+        ><small>当前分发链接</small>
+      </article>
+      <article>
+        <span>覆盖率</span><b>{{ coverage }}%</b><small>当前 Agent 覆盖</small>
+      </article>
+      <article>
+        <span>可用 Agent</span><b>{{ installedAgents.length }}</b
+        ><small>可用分发目标</small>
+      </article>
+      <article>
+        <span>技能数量</span><b>{{ skills.length }}</b
+        ><small>中央仓库项目</small>
+      </article>
+    </section>
     <n-spin :show="loading">
-      <section class="matrix surface" :style="{ '--agent-count': installedAgents.length }">
-        <div class="matrix-head"><span>Skill</span><span v-for="agent in installedAgents" :key="agent.name">{{ agent.displayName }}</span><span>操作</span></div>
-        <article v-for="skill in visibleSkills" :key="skill.name" class="matrix-row hover:bg-[var(--color-paper-2)]">
-          <div class="skill-cell"><strong>{{ skill.name }}</strong><small>v{{ skill.version }} · {{ skill.managed ? '已纳管' : '待确认' }}</small></div>
-          <div v-for="agent in installedAgents" :key="agent.name" class="coverage-cell"><span :class="skill.agents.includes(agent.name) ? 'coverage-dot coverage-dot--active' : 'coverage-dot'" :title="skill.agents.includes(agent.name) ? '已分发' : '未分发'">{{ skill.agents.includes(agent.name) ? '已覆盖' : '未覆盖' }}</span></div>
-          <div class="row-actions"><n-button size="tiny" quaternary @click="openAction(skill, 'deploy')">分发</n-button><n-button size="tiny" quaternary :disabled="skill.agents.length === 0" @click="openAction(skill, 'undeploy')">移除</n-button></div>
+      <section v-if="perspective === 'skill'" class="skill-distribution-list">
+        <article v-for="skill in visibleSkills" :key="skill.name">
+          <div class="skill-symbol">
+            {{ skill.name.split("/").at(-1)?.slice(0, 2).toUpperCase() }}
+          </div>
+          <div class="skill-copy">
+            <b>{{ skill.name.split("/").at(-1) }}</b
+            ><span>{{
+              skill.name.includes("/")
+                ? skill.name.slice(0, skill.name.lastIndexOf("/"))
+                : "本地工作区"
+            }}</span>
+          </div>
+          <div class="coverage-copy">
+            <AgentStack
+              v-if="skill.agents.length"
+              :agent-names="skill.agents"
+              :agents="agents"
+            /><span v-else>尚未分发</span
+            ><small
+              >{{ skill.agents.length }} / {{ installedAgents.length }}</small
+            >
+          </div>
+          <DistributionPicker
+            :skill="skill"
+            :agents="agents"
+            :busy="runningSkill === skill.name"
+            @preview="distribute(skill, $event, true)"
+            @distribute="distribute(skill, $event)"
+            ><button class="add-target" type="button">
+              ＋ <span>添加目标</span>
+            </button></DistributionPicker
+          >
         </article>
-        <n-empty v-if="visibleSkills.length === 0" class="p-8" description="没有匹配的 Skill" />
+      </section>
+      <section v-else-if="perspective === 'agent'" class="agent-grid">
+        <article v-for="agent in installedAgents" :key="agent.name">
+          <header>
+            <div class="agent-symbol">
+              {{ agent.displayName.slice(0, 2).toUpperCase() }}
+            </div>
+            <div>
+              <b>{{ agent.displayName }}</b
+              ><code>{{ agent.skillsDir }}</code>
+            </div>
+            <i />
+          </header>
+          <div class="agent-count">
+            <strong>{{ skillsForAgent(agent.name).length }}</strong
+            ><span>已分发 Skill</span>
+          </div>
+          <div class="agent-skills">
+            <span
+              v-for="skill in skillsForAgent(agent.name).slice(0, 6)"
+              :key="skill.name"
+              >{{ skill.name.split("/").at(-1) }}</span
+            ><em v-if="skillsForAgent(agent.name).length > 6"
+              >+{{ skillsForAgent(agent.name).length - 6 }}</em
+            ><small v-if="!skillsForAgent(agent.name).length">暂无分发</small>
+          </div>
+        </article>
+      </section>
+      <section v-else class="relation-matrix">
+        <header class="matrix-guide">
+          <div>
+            <b>全局覆盖关系</b>
+            <span>Skill 名称固定在左侧，横向滚动查看全部 Agent</span>
+          </div>
+          <em>{{ visibleSkills.length }} Skills × {{ installedAgents.length }} Agents</em>
+        </header>
+        <div
+          class="matrix-scroll"
+          :style="{ '--agent-count': installedAgents.length }"
+        >
+          <div class="matrix-table">
+            <div class="matrix-head">
+              <span class="matrix-skill-heading">Skill</span>
+              <span
+                v-for="agent in installedAgents"
+                :key="agent.name"
+                class="matrix-agent-heading"
+                :title="agent.displayName"
+              >
+                <i>{{ agent.displayName.slice(0, 2).toUpperCase() }}</i>
+                <b>{{ agent.displayName }}</b>
+              </span>
+            </div>
+            <div
+              v-for="skill in visibleSkills"
+              :key="skill.name"
+              class="matrix-row"
+            >
+              <strong class="matrix-skill" :title="skill.name">
+                <b>{{ skillDisplayName(skill.name) }}</b>
+                <small>{{ skillNamespace(skill.name) }}</small>
+              </strong>
+              <span
+                v-for="agent in installedAgents"
+                :key="agent.name"
+                class="matrix-cell"
+                :class="{ active: skill.agents.includes(agent.name) }"
+                :title="`${skill.name} → ${agent.displayName}: ${skill.agents.includes(agent.name) ? '已分发' : '未分发'}`"
+              >
+                <i />
+                <em>{{ skill.agents.includes(agent.name) ? "已分发" : "未分发" }}</em>
+              </span>
+            </div>
+          </div>
+        </div>
       </section>
     </n-spin>
-
-    <n-modal v-model:show="actionOpen" preset="card" :title="action === 'deploy' ? '分发 Skill' : '取消分发'" class="max-w-[32rem]">
-      <div class="grid gap-4"><p class="m-0 break-words font-[var(--font-mono)] text-sm text-[var(--color-ink)]">{{ selectedSkill?.name }}</p><n-select v-model:value="selectedAgents" :options="action === 'deploy' ? agentOptions : agentOptions.filter(option => selectedSkill?.agents.includes(option.value))" multiple placeholder="选择 Agent" /><n-radio-group v-if="action === 'deploy'" v-model:value="mode"><n-radio value="symlink">符号链接</n-radio><n-radio value="copy">复制副本</n-radio></n-radio-group><p class="m-0 text-xs leading-5 text-[var(--color-muted)]">{{ action === 'deploy' ? '预览只计算恢复后将执行的动作，不会写入文件。' : '取消分发会删除目标 Agent 中由 SkillSync 管理的副本。' }}</p><div class="inline-actions"><n-button :disabled="selectedAgents.length === 0" :loading="running" @click="execute(true)"><template #icon><n-icon :component="EyeOutline" /></template>预览</n-button><n-button :type="action === 'deploy' ? 'primary' : 'warning'" :disabled="selectedAgents.length === 0" :loading="running" @click="execute(false)"><template #icon><n-icon :component="FlashOutline" /></template>{{ action === 'deploy' ? '确认分发' : '确认移除' }}</n-button></div></div>
-    </n-modal>
   </div>
 </template>
 
 <style scoped>
-.matrix { overflow: auto; }
-.matrix-head, .matrix-row { display: grid; grid-template-columns: minmax(15rem, 1.5fr) repeat(var(--agent-count, 1), minmax(7rem, 1fr)) minmax(8rem, auto); min-inline-size: max-content; }
-.matrix-head { position: sticky; inset-block-start: 0; z-index: 1; border-block-end: var(--rule); background: var(--color-paper); color: var(--color-muted); font-family: var(--font-mono); font-size: 0.625rem; letter-spacing: 0.08em; text-transform: uppercase; }
-.matrix-head span, .matrix-row > * { padding: var(--space-md); border-inline-end: var(--rule); }.matrix-row { border-block-end: var(--rule); transition: background var(--dur-fast) var(--ease-out); }.matrix-row:last-of-type { border-block-end: 0; }
-.skill-cell { display: grid; gap: var(--space-2xs); }.skill-cell strong { color: var(--color-ink); font-size: var(--text-sm); }.skill-cell small { color: var(--color-muted); font-family: var(--font-mono); font-size: 0.625rem; }
-.coverage-cell { display: grid; place-items: center; }.coverage-dot { display: inline-flex; align-items: center; gap: var(--space-2xs); color: var(--color-muted); font-family: var(--font-mono); font-size: 0.625rem; white-space: nowrap; }.coverage-dot::before { content: ''; inline-size: 0.5rem; block-size: 0.5rem; border-radius: 50%; background: var(--color-rule-strong); }.coverage-dot--active { color: var(--color-success); }.coverage-dot--active::before { background: var(--color-success); box-shadow: 0 0 0 4px color-mix(in oklch, var(--color-success) 15%, transparent); }.row-actions { display: flex; align-items: center; gap: var(--space-xs); }
-@media (max-width: 39.99rem) { .matrix-head { display: none; }.matrix-row { grid-template-columns: 1fr; min-inline-size: 0; }.matrix-row > * { border-inline-end: 0; border-block-end: var(--rule); }.coverage-cell { display: flex; justify-content: space-between; }.coverage-cell::before { content: 'Agent 覆盖'; color: var(--color-muted); font-family: var(--font-mono); font-size: 0.625rem; }.row-actions { border-block-end: 0; } }
+.distribution-workspace {
+  width: 100%;
+  max-width: 96rem;
+  margin: 0 auto;
+  padding: 1.25rem 1.5rem 3rem;
+}
+.distribution-workspace > header {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 1rem;
+}
+.distribution-workspace > header p {
+  margin: 0;
+  color: var(--color-faint);
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  font-weight: 650;
+  letter-spacing: 0.1em;
+}
+.distribution-workspace > header h1 {
+  margin: 0.28rem 0 0;
+  color: var(--color-ink);
+  font-size: 1.45rem;
+  letter-spacing: -0.045em;
+}
+.distribution-workspace > header span {
+  display: block;
+  margin-top: 0.3rem;
+  color: var(--color-muted);
+  font-size: 0.75rem;
+}
+.distribution-workspace > header button {
+  display: flex;
+  height: 1.95rem;
+  align-items: center;
+  gap: 0.35rem;
+  border: 1px solid var(--color-rule);
+  border-radius: 0.5rem;
+  background: var(--color-paper);
+  padding: 0 0.62rem;
+  color: var(--color-ink-2);
+  font-size: 0.75rem;
+  box-shadow: var(--shadow-xs);
+}
+.distribution-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-top: 1.1rem;
+}
+.perspective-switch {
+  display: flex;
+  border: 1px solid var(--color-rule);
+  border-radius: 0.55rem;
+  background: var(--color-paper);
+  padding: 0.18rem;
+  box-shadow: var(--shadow-xs);
+}
+.perspective-switch button {
+  display: flex;
+  height: 1.65rem;
+  align-items: center;
+  gap: 0.3rem;
+  border: 0;
+  border-radius: 0.4rem;
+  background: transparent;
+  padding: 0 0.55rem;
+  color: var(--color-muted);
+  font-size: 0.75rem;
+}
+.perspective-switch button.active {
+  background: var(--color-paper-3);
+  color: var(--color-ink);
+}
+.distribution-toolbar > label {
+  display: flex;
+  width: min(20rem, 40vw);
+  height: 2rem;
+  align-items: center;
+  gap: 0.4rem;
+  border: 1px solid var(--color-rule);
+  border-radius: 0.5rem;
+  background: var(--color-paper);
+  padding: 0 0.55rem;
+  color: var(--color-muted);
+}
+.distribution-toolbar input {
+  min-width: 0;
+  flex: 1;
+  border: 0;
+  outline: 0;
+  background: none;
+  color: var(--color-ink);
+  font-size: 0.75rem;
+}
+.distribution-metrics {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  margin-top: 0.8rem;
+  overflow: hidden;
+  border: 1px solid var(--color-rule);
+  border-radius: 0.75rem;
+  background: var(--color-paper);
+  box-shadow: var(--shadow-xs);
+}
+.distribution-metrics article {
+  display: grid;
+  gap: 0.12rem;
+  padding: 0.72rem 0.85rem;
+  border-right: 1px solid var(--color-rule);
+}
+.distribution-metrics article:last-child {
+  border-right: 0;
+}
+.distribution-metrics span {
+  color: var(--color-faint);
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  letter-spacing: 0.07em;
+}
+.distribution-metrics b {
+  color: var(--color-ink);
+  font-size: 1.15rem;
+  letter-spacing: -0.04em;
+}
+.distribution-metrics small {
+  color: var(--color-muted);
+  font-size: 0.75rem;
+}
+.skill-distribution-list {
+  display: grid;
+  gap: 0.25rem;
+  margin-top: 0.75rem;
+}
+.skill-distribution-list > article {
+  display: grid;
+  min-height: 3.8rem;
+  grid-template-columns: auto minmax(10rem, 1fr) minmax(12rem, auto) auto;
+  align-items: center;
+  gap: 0.75rem;
+  border: 1px solid var(--color-rule);
+  border-radius: 0.65rem;
+  background: var(--color-paper);
+  padding: 0.55rem 0.65rem;
+  box-shadow: var(--shadow-xs);
+}
+.skill-distribution-list > article:hover {
+  border-color: var(--color-rule-strong);
+}
+.skill-symbol,
+.agent-symbol {
+  display: grid;
+  width: 2rem;
+  height: 2rem;
+  place-items: center;
+  border: 1px solid var(--color-rule);
+  border-radius: 0.58rem;
+  background: var(--color-paper-2);
+  color: var(--color-accent);
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  font-weight: 750;
+}
+.skill-copy b,
+.skill-copy span {
+  display: block;
+}
+.skill-copy b {
+  overflow: hidden;
+  color: var(--color-ink);
+  font-size: 0.75rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.skill-copy span {
+  overflow: hidden;
+  margin-top: 0.06rem;
+  color: var(--color-faint);
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.coverage-copy {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.5rem;
+}
+.coverage-copy > span {
+  color: var(--color-faint);
+  font-size: 0.75rem;
+}
+.coverage-copy small {
+  color: var(--color-faint);
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+}
+.add-target {
+  display: flex;
+  height: 1.75rem;
+  align-items: center;
+  gap: 0.25rem;
+  border: 1px dashed var(--color-rule-strong);
+  border-radius: 0.45rem;
+  background: transparent;
+  padding: 0 0.48rem;
+  color: var(--color-muted);
+  font-size: 0.75rem;
+}
+.add-target:hover {
+  border-style: solid;
+  border-color: var(--color-accent);
+  background: var(--color-accent-soft);
+  color: var(--color-accent);
+}
+.agent-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr));
+  gap: 0.6rem;
+  margin-top: 0.75rem;
+}
+.agent-grid > article {
+  display: grid;
+  gap: 0.85rem;
+  border: 1px solid var(--color-rule);
+  border-radius: 0.75rem;
+  background: var(--color-paper);
+  padding: 0.85rem;
+  box-shadow: var(--shadow-xs);
+}
+.agent-grid header {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.6rem;
+}
+.agent-grid header b,
+.agent-grid header code {
+  display: block;
+}
+.agent-grid header b {
+  color: var(--color-ink);
+  font-size: 0.75rem;
+}
+.agent-grid header code {
+  overflow: hidden;
+  margin-top: 0.08rem;
+  color: var(--color-faint);
+  font-size: 0.75rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.agent-grid header > i {
+  width: 0.42rem;
+  height: 0.42rem;
+  border-radius: 999px;
+  background: var(--color-success);
+  box-shadow: 0 0 0 3px var(--color-success-soft);
+}
+.agent-count {
+  display: flex;
+  align-items: baseline;
+  gap: 0.45rem;
+}
+.agent-count strong {
+  color: var(--color-ink);
+  font-size: 1.35rem;
+  letter-spacing: -0.05em;
+}
+.agent-count span {
+  color: var(--color-muted);
+  font-size: 0.75rem;
+}
+.agent-skills {
+  display: flex;
+  min-height: 2.3rem;
+  flex-wrap: wrap;
+  align-content: start;
+  gap: 0.25rem;
+  padding-top: 0.65rem;
+  border-top: 1px solid var(--color-rule);
+}
+.agent-skills span,
+.agent-skills em {
+  border-radius: 0.32rem;
+  background: var(--color-paper-2);
+  padding: 0.16rem 0.3rem;
+  color: var(--color-muted);
+  font-size: 0.75rem;
+  font-style: normal;
+}
+.agent-skills small {
+  color: var(--color-faint);
+  font-size: 0.75rem;
+}
+.relation-matrix {
+  margin-top: 1rem;
+  overflow: hidden;
+  border: 1px solid var(--color-rule);
+  border-radius: 0.75rem;
+  background: var(--color-paper);
+  box-shadow: var(--shadow-xs);
+}
+.matrix-guide {
+  display: flex;
+  min-height: 4.5rem;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1.5rem;
+  border-bottom: 1px solid var(--color-rule);
+  padding: 0.85rem 1rem;
+  background: var(--color-paper);
+}
+.matrix-guide b,
+.matrix-guide span {
+  display: block;
+}
+.matrix-guide b {
+  color: var(--color-ink);
+  font-size: 0.9rem;
+}
+.matrix-guide span {
+  margin-top: 0.16rem;
+  color: var(--color-muted);
+  font-size: 0.8rem;
+}
+.matrix-guide em {
+  border: 1px solid var(--color-rule);
+  border-radius: 999px;
+  background: var(--color-paper-2);
+  padding: 0.3rem 0.55rem;
+  color: var(--color-muted);
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  font-style: normal;
+  white-space: nowrap;
+}
+.matrix-scroll {
+  max-height: min(44rem, calc(100dvh - 21rem));
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+.matrix-table {
+  width: max-content;
+  min-width: 100%;
+}
+.matrix-head,
+.matrix-row {
+  display: grid;
+  grid-template-columns: 20rem repeat(var(--agent-count), 8rem);
+}
+.matrix-head {
+  position: sticky;
+  top: 0;
+  z-index: 4;
+  background: var(--color-paper-2);
+  box-shadow: 0 1px 0 var(--color-rule), 0 5px 14px rgba(15, 15, 20, 0.04);
+}
+.matrix-head span,
+.matrix-row > * {
+  border-right: 1px solid var(--color-rule);
+  border-bottom: 1px solid var(--color-rule);
+}
+.matrix-head span {
+  display: flex;
+  min-width: 0;
+  min-height: 3.25rem;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.65rem;
+  color: var(--color-faint);
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.matrix-skill-heading {
+  position: sticky;
+  left: 0;
+  z-index: 5;
+  background: var(--color-paper-2);
+}
+.matrix-agent-heading i {
+  display: grid;
+  width: 1.7rem;
+  height: 1.7rem;
+  flex: none;
+  place-items: center;
+  border: 1px solid var(--color-rule);
+  border-radius: 0.48rem;
+  background: var(--color-paper-3);
+  color: var(--color-accent);
+  font-size: 0.75rem;
+  font-style: normal;
+  letter-spacing: 0;
+}
+.matrix-agent-heading b {
+  overflow: hidden;
+  color: var(--color-muted);
+  font-size: 0.75rem;
+  font-weight: 620;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.matrix-row {
+  min-height: 3.5rem;
+  background: var(--color-paper);
+}
+.matrix-row:hover {
+  background: color-mix(in srgb, var(--color-accent-soft) 38%, var(--color-paper));
+}
+.matrix-skill {
+  position: sticky;
+  left: 0;
+  z-index: 2;
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  justify-content: center;
+  padding: 0.55rem 0.85rem;
+  background: var(--color-paper);
+  box-shadow: 1px 0 0 var(--color-rule), 8px 0 18px rgba(15, 15, 20, 0.025);
+}
+.matrix-row:hover .matrix-skill {
+  background: color-mix(in srgb, var(--color-accent-soft) 38%, var(--color-paper));
+}
+.matrix-skill b {
+  overflow: hidden;
+  color: var(--color-ink);
+  font-size: 0.875rem;
+  font-weight: 620;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.matrix-skill small {
+  overflow: hidden;
+  margin-top: 0.08rem;
+  color: var(--color-faint);
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  font-weight: 450;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.matrix-cell {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.38rem;
+  padding: 0.55rem 0.65rem;
+  color: var(--color-faint);
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+}
+.matrix-cell i {
+  width: 0.42rem;
+  height: 0.42rem;
+  flex: none;
+  border-radius: 999px;
+  background: var(--color-rule-strong);
+}
+.matrix-cell em {
+  font-style: normal;
+}
+.matrix-cell.active {
+  color: var(--color-success);
+  background: color-mix(in srgb, var(--color-success-soft) 45%, transparent);
+}
+.matrix-cell.active i {
+  background: var(--color-success);
+  box-shadow: 0 0 0 3px var(--color-success-soft);
+}
+@media (max-width: 720px) {
+  .distribution-workspace {
+    padding: 1rem 0.9rem 2.5rem;
+  }
+  .distribution-toolbar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .distribution-toolbar > label {
+    width: 100%;
+  }
+  .distribution-metrics {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  .distribution-metrics article:nth-child(2) {
+    border-right: 0;
+  }
+  .distribution-metrics article:nth-child(-n + 2) {
+    border-bottom: 1px solid var(--color-rule);
+  }
+  .skill-distribution-list > article {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+  }
+  .coverage-copy {
+    grid-column: 1 / -1;
+    justify-content: flex-start;
+  }
+  .add-target span {
+    display: none;
+  }
+}
+
+.distribution-workspace {
+  max-width: var(--content-max-width);
+  padding: 2rem 2.25rem 4rem;
+}
+.distribution-toolbar {
+  margin-top: 1.5rem;
+}
+.perspective-switch button {
+  height: 2rem;
+  padding: 0 0.75rem;
+  font-size: 0.75rem;
+}
+.distribution-toolbar > label {
+  height: 2.4rem;
+}
+.distribution-toolbar input {
+  font-size: 0.78rem;
+}
+.distribution-metrics {
+  margin-top: 1.1rem;
+}
+.distribution-metrics article {
+  gap: 0.25rem;
+  padding: 1rem 1.1rem;
+}
+.distribution-metrics span {
+  font-size: 0.75rem;
+}
+.distribution-metrics b {
+  font-size: 1.35rem;
+}
+.distribution-metrics small {
+  font-size: 0.75rem;
+}
+.skill-distribution-list {
+  gap: 0.55rem;
+  margin-top: 1rem;
+}
+.skill-distribution-list > article {
+  min-height: 4.4rem;
+  gap: 1rem;
+  padding: 0.7rem 0.85rem;
+}
+.skill-symbol,
+.agent-symbol {
+  width: 2.35rem;
+  height: 2.35rem;
+  font-size: 0.75rem;
+}
+.skill-copy span,
+.coverage-copy > span,
+.coverage-copy small,
+.add-target {
+  font-size: 0.75rem;
+}
+.agent-grid {
+  gap: 1rem;
+  margin-top: 1rem;
+}
+.agent-grid > article {
+  gap: 1rem;
+  padding: 1rem;
+}
+.distribution-workspace > header p {
+  font-size: 0.75rem;
+}
+.distribution-workspace > header h1 {
+  font-size: 2rem;
+}
+.distribution-workspace > header span {
+  font-size: 0.95rem;
+}
+.distribution-workspace > header button {
+  height: 2.4rem;
+  padding: 0 0.8rem;
+  font-size: 0.85rem;
+}
+.perspective-switch button {
+  height: 2.35rem;
+  font-size: 0.85rem;
+}
+.distribution-toolbar input {
+  font-size: 0.9rem;
+}
+.distribution-metrics span {
+  font-size: 0.75rem;
+}
+.distribution-metrics b {
+  font-size: 1.55rem;
+}
+.distribution-metrics small {
+  font-size: 0.8rem;
+}
+.skill-distribution-list > article {
+  min-height: 5rem;
+}
+.skill-copy b {
+  font-size: 0.9rem;
+}
+.skill-copy span,
+.coverage-copy > span,
+.coverage-copy small,
+.add-target {
+  font-size: 0.78rem;
+}
+.add-target {
+  height: 2.25rem;
+  padding: 0 0.65rem;
+}
+.agent-grid header b {
+  font-size: 0.9rem;
+}
+.agent-grid header code {
+  font-size: 0.75rem;
+}
+.agent-count span,
+.agent-skills small {
+  font-size: 0.78rem;
+}
+.agent-skills span,
+.agent-skills em {
+  font-size: 0.75rem;
+}
+.matrix-head span,
+.matrix-row span,
+.matrix-row strong {
+  font-size: 0.75rem;
+}
 </style>

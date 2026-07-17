@@ -53,6 +53,7 @@ import type {
   InstallResult,
   ImportResult,
   DistributionTarget,
+  SkillDetail,
 } from '../lib/types.js';
 
 export { computeSourceHash, createLink, removeLink, resolveDeployMode } from './distribution-files.js';
@@ -102,11 +103,19 @@ export function listSkills(ctx: SkillSyncContext): SkillInfo[] {
 /**
  * 获取 skill 详情
  */
-export function getSkillDetail(ctx: SkillSyncContext, name: string): SkillInfo | null {
+export function getSkillDetail(ctx: SkillSyncContext, name: string): SkillDetail | null {
   const entry = getLockEntry(name);
   if (!entry) return null;
 
   const { manifest } = tryReadManifest(name);
+  const source = {
+    type: entry.source.type,
+    owner: entry.source.owner ?? manifest?.source.owner,
+    repo: entry.source.repo ?? manifest?.source.repo,
+    skillPath: entry.source.skillPath ?? entry.source.path ?? manifest?.source.skillPath ?? manifest?.source.path,
+    commit: entry.source.commit,
+    installedVia: entry.source.installedVia ?? manifest?.source.installedVia ?? 'init-scan',
+  } satisfies SkillSource;
 
   return {
     name,
@@ -116,6 +125,12 @@ export function getSkillDetail(ctx: SkillSyncContext, name: string): SkillInfo |
     deployMode: manifest?.distribution.mode ?? 'symlink',
     agents: Object.keys(entry.distribution),
     managed: true,
+    source,
+    installedAt: entry.installedAt,
+    updatedAt: entry.updatedAt,
+    distribution: manifest?.distribution.targets ?? [],
+    backups: [],
+    dependencies: manifest?.dependsOn,
   };
 }
 

@@ -59,7 +59,7 @@ watch(() => props.name, () => { candidates.value = []; selected.value = null; ve
 
 <template>
   <section class="panel">
-    <div class="panel-head"><div><p class="meta-label">SOURCE</p><h2>来源与更新资格</h2></div><n-button v-if="props.source.type === 'local'" size="small" :loading="loading" @click="discover"><template #icon><n-icon :component="SearchOutline" /></template>匹配来源</n-button></div>
+    <div class="panel-head"><div><p class="meta-label">来源</p><h2>来源与更新资格</h2></div><n-button v-if="props.source.type === 'local'" size="small" :loading="loading" @click="discover"><template #icon><n-icon :component="SearchOutline" /></template>匹配来源</n-button></div>
     <div class="source-line"><n-icon :component="LinkOutline" size="17" /><code>{{ sourceLabel }}</code></div>
     <p v-if="props.source.type === 'local'" class="hint">仅搜索并验证候选；确认关联前不会下载或覆盖本地内容。</p>
     <div v-if="candidates.length" class="candidate-list">
@@ -68,7 +68,7 @@ watch(() => props.name, () => { candidates.value = []; selected.value = null; ve
         <n-button size="small" :loading="verifying && selected?.skillId === candidate.skillId" @click="verify(candidate)">验证</n-button>
       </article>
     </div>
-    <div v-if="verifiedSummary" class="verified"><div><p class="meta-label">VERIFIED TARGET</p><code>{{ verifiedSummary }}</code></div><n-button type="primary" size="small" :loading="associating" @click="associate">确认关联</n-button></div>
+    <div v-if="verifiedSummary" class="verified"><div><p class="meta-label">已验证目标</p><code>{{ verifiedSummary }}</code></div><n-button type="primary" size="small" :loading="associating" @click="associate">确认关联</n-button></div>
   </section>
 </template>
 

@@ -32,7 +32,7 @@ watch(() => props.name, refresh, { immediate: true });
 
 <template>
   <section class="panel">
-    <div class="panel-head"><div><p class="meta-label">DEPENDENCY REVIEW</p><h2>依赖审查</h2></div><n-button size="small" quaternary :loading="loading" @click="refresh">刷新</n-button></div>
+    <div class="panel-head"><div><p class="meta-label">依赖审查</p><h2>依赖审查</h2></div><n-button size="small" quaternary :loading="loading" @click="refresh">刷新</n-button></div>
     <template v-if="review">
       <div class="dependency-grid">
         <div class="dependency-block"><p class="block-title"><n-icon :component="CubeOutline" />Skill 依赖</p><n-empty v-if="review.skillDependencies.length === 0" size="small" description="未声明 Skill 依赖" /><ul v-else><li v-for="dependency in review.skillDependencies" :key="dependency.name"><code>{{ dependency.name }}</code><span :class="dependency.installed ? 'state-success' : 'state-danger'">{{ dependency.installed ? '已满足' : '缺失' }}</span></li></ul></div>
