@@ -5,5 +5,13 @@
     "theme": "Cobalt",
     "enrichment": "none",
     "brief": "SkillSync developer distribution management console with initial sync setup and daily sync health"
+  },
+  {
+    "date": "2026-07-17",
+    "macrostructure": "Catalogue",
+    "theme": "custom system-native cool",
+    "theme_axes": "light / system-native / cool",
+    "enrichment": "none",
+    "brief": "Skill card catalogue with Agent stacks, right inspector, and transactional distribution picker"
   }
 ]

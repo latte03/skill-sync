@@ -1,102 +1,50 @@
 <script setup lang="ts">
-import { computed, ref, shallowRef } from 'vue';
-import { useRouter } from 'vue-router';
+import { computed, ref } from 'vue';
 import { useMessage } from 'naive-ui';
-import { FlashOutline, RefreshOutline, SearchOutline } from '@vicons/ionicons5';
+import { RefreshOutline } from '@vicons/ionicons5';
 import { api } from '../api';
-import type { AgentInfo, SkillInfo, StatusInfo } from '../api';
+import type { SkillInfo } from '../api';
+import { useSkillWorkspace } from '../composables/useSkillWorkspace';
+import SkillCard from '../components/workspace/SkillCard.vue';
+import SkillInspector from '../components/workspace/SkillInspector.vue';
+import DistributionPicker from '../components/workspace/DistributionPicker.vue';
 
-const router = useRouter();
 const message = useMessage();
-const loading = ref(false);
-const skills = ref<SkillInfo[]>([]);
-const status = ref<StatusInfo | null>(null);
-const agents = ref<AgentInfo[]>([]);
-const tags = ref<Record<string, string[]>>({});
-const query = shallowRef('');
-const agentFilter = shallowRef<string | null>(null);
-const tagFilter = shallowRef<string | null>(null);
+const workspace = useSkillWorkspace(message.error);
+const pickerOpen = ref(false);
+const pickerSkill = ref<SkillInfo | null>(null);
+const running = ref(false);
+const installedAgents = computed(() => workspace.installedAgents.value);
+const tagNames = computed(() => Object.keys(workspace.tags.value));
 
-const agentOptions = computed(() => agents.value.filter(agent => agent.installed).map(agent => ({ label: agent.displayName, value: agent.name })));
-const tagOptions = computed(() => Object.keys(tags.value).map(tag => ({ label: tag, value: tag })));
-const visibleSkills = computed(() => skills.value.filter((skill) => {
-  const value = query.value.trim().toLowerCase();
-  return (!value || skill.name.toLowerCase().includes(value) || skill.description.toLowerCase().includes(value))
-    && (!agentFilter.value || skill.agents.includes(agentFilter.value))
-    && (!tagFilter.value || skill.tags.includes(tagFilter.value));
-}));
-const metrics = computed(() => [
-  { label: '中央仓库', value: status.value?.skillCount ?? 0, note: '可追踪 Skill' },
-  { label: '已分发', value: skills.value.filter(skill => skill.agents.length > 0).length, note: '至少覆盖一个 Agent' },
-  { label: '未纳管', value: status.value?.unmanagedCount ?? 0, note: '需要确认来源' },
-  { label: '已安装 Agent', value: status.value?.installedAgents.length ?? 0, note: '可作为分发目标' },
-]);
-
-async function refresh() {
-  loading.value = true;
+function openDistribution(skill: SkillInfo) { pickerSkill.value = skill; pickerOpen.value = true; }
+async function distribute(input: { agents: string[]; mode: 'symlink' | 'copy' }, dryRun = false) {
+  if (!pickerSkill.value) return;
+  running.value = true;
   try {
-    const [statusResponse, skillsResponse, agentResponse, tagResponse] = await Promise.all([api.getStatus(), api.getSkills(), api.getAgents(), api.getTags()]);
-    status.value = statusResponse;
-    skills.value = skillsResponse.skills;
-    agents.value = agentResponse.agents;
-    tags.value = tagResponse.tags;
+    await api.deploySkill(pickerSkill.value.name, input.agents, { mode: input.mode, dryRun });
+    message.success(dryRun ? '预览完成：未写入任何文件' : '分发已完成，所有目标已一致提交');
+    if (!dryRun) { pickerOpen.value = false; await workspace.refresh(); await workspace.selectSkill(pickerSkill.value); }
   } catch (error) {
-    message.error(`加载技能库失败: ${(error as Error).message}`);
-  } finally {
-    loading.value = false;
-  }
+    message.error(`分发失败: ${(error as Error).message}`);
+  } finally { running.value = false; }
 }
-
-refresh();
 </script>
 
 <template>
-  <div class="app-page skills-page">
-    <header class="grid gap-6 lg:grid-cols-[minmax(0_1fr)_auto] lg:items-end">
-      <div class="page-heading">
-        <p class="page-kicker">SKILL INVENTORY</p>
-        <h1 class="page-title">技能库</h1>
-        <p class="page-summary">从来源到 Agent 覆盖，所有 Skill 都以可操作的状态呈现。</p>
-      </div>
-      <div class="page-toolbar lg:justify-end">
-        <n-button size="small" :loading="loading" @click="refresh"><template #icon><n-icon :component="RefreshOutline" /></template>刷新</n-button>
-        <n-button type="primary" size="small" @click="router.push({ name: 'manage' })"><template #icon><n-icon :component="FlashOutline" /></template>打开分发控制台</n-button>
-      </div>
+  <div class="workspace-page">
+    <header class="workspace-toolbar">
+      <div class="workspace-title"><p>SKILL CATALOGUE</p><h1>技能库 <span>{{ workspace.visibleSkills.value.length }}</span></h1></div>
+      <div class="workspace-controls"><label class="toolbar-search"><span>⌕</span><input v-model="workspace.query.value" placeholder="搜索 Skill、描述或标签"><kbd>⌘ K</kbd></label><select v-model="workspace.agentFilter.value" aria-label="按 Agent 筛选"><option value="">全部 Agent</option><option v-for="agent in installedAgents" :key="agent.name" :value="agent.name">{{ agent.displayName }}</option></select><select v-model="workspace.tagFilter.value" aria-label="按标签筛选"><option value="">全部标签</option><option v-for="tag in tagNames" :key="tag" :value="tag">{{ tag }}</option></select><button class="refresh-button" type="button" :disabled="workspace.loading.value" @click="workspace.refresh"><n-icon :component="RefreshOutline" size="16" />刷新</button></div>
     </header>
-
-    <section class="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-      <article v-for="(metric, index) in metrics" :key="metric.label" :class="['grid min-h-36 gap-2 rounded-[var(--radius-lg)] p-6', index === 0 ? 'bg-[var(--color-graphite)] text-[var(--color-graphite-ink)] shadow-[var(--shadow-md)]' : 'surface']">
-        <p :class="index === 0 ? 'm-0 text-[0.6875rem] font-[var(--font-mono)] tracking-[0.1em] uppercase text-[var(--color-graphite-ink)]/58' : 'metric-label'">{{ metric.label }}</p>
-        <strong :class="index === 0 ? 'font-[var(--font-display)] text-4xl leading-none tracking-[-0.07em]' : 'font-[var(--font-display)] text-4xl leading-none tracking-[-0.07em] text-[var(--color-ink)]'">{{ metric.value }}</strong>
-        <span :class="index === 0 ? 'text-xs text-[var(--color-graphite-ink)]/68' : 'text-xs text-[var(--color-muted)]'">{{ metric.note }}</span>
-      </article>
-    </section>
-
-    <section class="surface grid gap-3 p-3 lg:grid-cols-[minmax(16rem_1fr)_10rem_10rem_auto] lg:items-center">
-      <div class="flex min-w-0 items-center gap-2 rounded-[var(--radius-sm)] bg-[var(--color-paper-2)] px-3 text-[var(--color-muted)]"><n-icon :component="SearchOutline" size="18" /><n-input v-model:value="query" class="flex-1" placeholder="按名称或描述筛选" clearable /></div>
-      <n-select v-model:value="agentFilter" :options="agentOptions" clearable placeholder="Agent 覆盖" />
-      <n-select v-model:value="tagFilter" :options="tagOptions" clearable placeholder="标签" />
-      <span class="justify-self-end text-xs font-[var(--font-mono)] text-[var(--color-muted)]">{{ visibleSkills.length }} 项结果</span>
-    </section>
-
-    <n-spin :show="loading">
-      <section v-if="visibleSkills.length" class="grid grid-cols-[repeat(auto-fill,minmax(min(100%,17rem),1fr))] gap-4">
-        <article v-for="skill in visibleSkills" :key="skill.name" class="group grid min-h-62 cursor-pointer gap-6 rounded-[var(--radius-lg)] border border-[var(--color-rule)] bg-[var(--color-paper)] p-6 shadow-[var(--shadow-sm)] transition-[transform,border-color,box-shadow] duration-180 ease-out hover:-translate-y-1 hover:border-[var(--color-accent)] hover:shadow-[var(--shadow-md)]" tabindex="0" role="link" @click="router.push({ name: 'skillDetail', params: { name: skill.name } })" @keydown.enter="router.push({ name: 'skillDetail', params: { name: skill.name } })">
-          <header class="flex items-start justify-between gap-3">
-            <div class="flex min-w-0 items-start gap-3">
-              <span class="grid h-10 w-10 flex-none place-items-center rounded-[var(--radius-md)] bg-[var(--color-accent-soft)] font-[var(--font-mono)] text-sm font-600 text-[var(--color-accent)]">{{ skill.name.split('/').at(-1)?.slice(0, 2).toUpperCase() }}</span>
-              <div class="min-w-0"><h2 class="m-0 break-words text-sm font-600 text-[var(--color-ink)]">{{ skill.name }}</h2><p class="mt-1 mb-0 text-[0.625rem] font-[var(--font-mono)] text-[var(--color-muted)]">v{{ skill.version }}</p></div>
-            </div>
-            <n-tag :type="skill.managed ? 'success' : 'warning'" size="small">{{ skill.managed ? '已纳管' : '待确认' }}</n-tag>
-          </header>
-          <p class="m-0 text-sm leading-6 text-[var(--color-muted)]">{{ skill.description || '未提供描述' }}</p>
-          <footer class="mt-auto flex items-end justify-between gap-3">
-            <div class="flex flex-wrap gap-1"><span v-for="tag in skill.tags.slice(0, 2)" :key="tag" class="rounded-md bg-[var(--color-paper-2)] px-2 py-1 text-[0.625rem] font-[var(--font-mono)] text-[var(--color-muted)]">{{ tag }}</span><span v-if="skill.tags.length > 2" class="rounded-md bg-[var(--color-paper-2)] px-2 py-1 text-[0.625rem] font-[var(--font-mono)] text-[var(--color-muted)]">+{{ skill.tags.length - 2 }}</span><span v-if="skill.tags.length === 0" class="px-2 py-1 text-[0.625rem] font-[var(--font-mono)] text-[var(--color-muted)]">无标签</span></div>
-            <p class="m-0 whitespace-nowrap text-xs text-[var(--color-muted)]"><b class="font-[var(--font-mono)] text-[var(--color-ink)]">{{ skill.agents.length }}</b> 个 Agent</p>
-          </footer>
-        </article>
-      </section>
-      <n-empty v-else description="没有符合条件的 Skill" />
-    </n-spin>
+    <div class="workspace-main">
+      <section class="catalogue-area"><div class="catalogue-note"><span><i />本地工作区正常</span><span>{{ workspace.skills.value.filter(skill => skill.agents.length).length }} 个 Skill 已分发</span><span>{{ workspace.status.value?.unmanagedCount ?? 0 }} 个待关联来源</span></div><n-spin :show="workspace.loading.value"><div v-if="workspace.visibleSkills.value.length" class="skill-grid"><SkillCard v-for="skill in workspace.visibleSkills.value" :key="skill.name" :skill="skill" :agents="workspace.agents.value" :selected="workspace.selectedSkill.value?.name === skill.name" @select="workspace.selectSkill" @distribute="openDistribution" @agent="openDistribution(skill)" /></div><n-empty v-else description="没有符合条件的 Skill" /></n-spin></section>
+      <SkillInspector :skill="workspace.selectedSkill.value" :detail="workspace.selectedDetail.value" :agents="workspace.agents.value" :loading="workspace.detailLoading.value" @close="workspace.closeInspector" @distribute="openDistribution" />
+    </div>
+    <DistributionPicker v-model:open="pickerOpen" :skill="pickerSkill" :agents="workspace.agents.value" :busy="running" @preview="distribute($event, true)" @distribute="distribute($event)" />
   </div>
 </template>
+
+<style scoped>
+.workspace-page { width: min(100%, 110rem); margin: 0 auto; padding: 1rem; }.workspace-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: .6rem .1rem 1rem; }.workspace-title p { margin: 0; color: var(--color-muted); font-family: var(--font-mono); font-size: .6rem; font-weight: 650; letter-spacing: .11em; }.workspace-title h1 { margin: .35rem 0 0; color: var(--color-ink); font-size: 1.15rem; letter-spacing: -.045em; }.workspace-title h1 span { margin-left: .35rem; color: var(--color-muted); font-family: var(--font-mono); font-size: .7rem; font-weight: 500; }.workspace-controls { display: flex; align-items: center; gap: .45rem; }.toolbar-search { display: flex; align-items: center; min-width: min(22rem, 34vw); gap: .45rem; border: 1px solid var(--color-rule); border-radius: .7rem; background: color-mix(in oklch, var(--color-paper) 82%, transparent); padding: .45rem .55rem; color: var(--color-muted); box-shadow: var(--shadow-sm); }.toolbar-search input { min-width: 0; flex: 1; border: 0; outline: 0; background: transparent; color: var(--color-ink); font: inherit; font-size: .72rem; }.toolbar-search kbd { border: 1px solid var(--color-rule); border-radius: .3rem; padding: .08rem .25rem; color: var(--color-muted); font-family: var(--font-mono); font-size: .56rem; }.workspace-controls select,.refresh-button { height: 2.15rem; border: 1px solid var(--color-rule); border-radius: .65rem; background: var(--color-paper); color: var(--color-muted); padding: 0 .55rem; font-size: .7rem; }.refresh-button { display: flex; align-items: center; gap: .3rem; color: var(--color-ink); }.workspace-main { display: grid; gap: 1rem; grid-template-columns: minmax(0, 1fr); }.catalogue-area { min-width: 0; }.catalogue-note { display: flex; flex-wrap: wrap; gap: .55rem 1rem; margin-bottom: .75rem; color: var(--color-muted); font-family: var(--font-mono); font-size: .61rem; }.catalogue-note span { display: flex; align-items: center; gap: .35rem; }.catalogue-note i { width: .45rem; height: .45rem; border-radius: 999px; background: var(--color-success); box-shadow: 0 0 0 3px var(--color-success-soft); }.skill-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 17rem), 1fr)); gap: .75rem; }@media (min-width: 1280px) { .workspace-main { grid-template-columns: minmax(0, 1fr) 19.5rem; }.workspace-page { padding: 1rem 1.25rem; } }.refresh-button:disabled { opacity: .55; }@media (max-width: 900px) { .workspace-toolbar { align-items: stretch; flex-direction: column; }.workspace-controls { width: 100%; overflow-x: auto; }.toolbar-search { min-width: 16rem; flex: 1; }.workspace-controls select { display: none; } }.workspace-title h1 { line-height: 1; }
+</style>

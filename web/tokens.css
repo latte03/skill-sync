@@ -1,33 +1,37 @@
-@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Space+Grotesk:wght@400;500;600;700&display=swap');
-
-/* Hallmark · macrostructure: Workbench · tone: technical · anchor hue: electric cobalt
+/* Hallmark · macrostructure: Catalogue · tone: calm, dense, tactile
  * audience: developers and agent managers · use: inspect and safely operate Skill distribution
- * theme: Cobalt · nav: N3 application side rail · footer: Ft2 inline-rule
- * pre-emit critique: P5 H5 E5 S5 R4 V4
+ * theme: custom system-native cool · nav: N13 command entry + workspace rail · footer: Ft1 status bar
+ * pre-emit critique: P5 H5 E5 S5 R5 V5
  */
 :root {
-  --color-paper: oklch(99% 0.003 260);
-  --color-paper-2: oklch(96.5% 0.009 260);
-  --color-paper-3: oklch(92.5% 0.016 260);
-  --color-ink: oklch(20% 0.028 265);
-  --color-ink-2: oklch(32% 0.025 265);
-  --color-muted: oklch(49% 0.022 265);
-  --color-rule: oklch(88% 0.014 265);
-  --color-rule-strong: oklch(74% 0.02 265);
-  --color-accent: oklch(56% 0.23 270);
-  --color-accent-hover: oklch(50% 0.24 270);
+  --color-paper: oklch(99% 0.006 250);
+  --color-paper-2: oklch(96.7% 0.012 250);
+  --color-paper-3: oklch(92.5% 0.018 250);
+  --color-ink: oklch(22% 0.025 255);
+  --color-ink-2: oklch(36% 0.022 255);
+  --color-muted: oklch(51% 0.02 255);
+  --color-rule: oklch(87% 0.015 250);
+  --color-rule-strong: oklch(73% 0.024 250);
+  --color-accent: oklch(58% 0.19 255);
+  --color-accent-hover: oklch(53% 0.2 255);
   --color-accent-ink: oklch(99% 0.002 250);
-  --color-accent-soft: oklch(93% 0.05 270);
-  --color-focus: oklch(48% 0.22 270);
-  --color-success: oklch(54% 0.15 155);
+  --color-accent-soft: oklch(93% 0.045 255);
+  --color-focus: oklch(54% 0.19 255);
+  --color-focus-ring: color-mix(in oklch, var(--color-accent) 25%, transparent);
+  --color-success: oklch(56% 0.145 155);
   --color-success-soft: oklch(94% 0.045 155);
-  --color-warning: oklch(60% 0.15 75);
-  --color-warning-soft: oklch(96% 0.04 75);
-  --color-danger: oklch(54% 0.19 28);
-  --color-danger-soft: oklch(95% 0.035 28);
-  --color-graphite: oklch(19% 0.035 270);
-  --color-graphite-2: oklch(25% 0.04 270);
-  --color-graphite-ink: oklch(95% 0.012 265);
+  --color-warning: oklch(66% 0.15 72);
+  --color-warning-soft: oklch(96% 0.045 72);
+  --color-danger: oklch(56% 0.18 28);
+  --color-danger-soft: oklch(95% 0.04 28);
+  --color-graphite: oklch(23% 0.025 255);
+  --color-graphite-2: oklch(29% 0.028 255);
+  --color-graphite-ink: oklch(96% 0.008 255);
+  --color-agent-ink: oklch(20% 0.022 255);
+  --color-agent-blue: oklch(82% 0.07 250);
+  --color-agent-violet: oklch(83% 0.07 305);
+  --color-agent-mint: oklch(86% 0.07 165);
+  --color-agent-amber: oklch(88% 0.075 82);
   --bg: var(--color-paper-2);
   --surface: var(--color-paper);
   --surface-2: var(--color-paper-2);
@@ -43,11 +47,13 @@
   --success: var(--color-success);
   --warning: var(--color-warning);
   --danger: var(--color-danger);
-  --shadow-sm: 0 1px 2px color-mix(in oklch, var(--color-ink) 4%, transparent), 0 10px 24px color-mix(in oklch, var(--color-ink) 4%, transparent);
-  --shadow-md: 0 20px 48px color-mix(in oklch, var(--color-ink) 13%, transparent);
-  --font-display: 'Space Grotesk', ui-sans-serif, sans-serif;
-  --font-body: 'Space Grotesk', ui-sans-serif, sans-serif;
-  --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+  --shadow-sm: 0 1px 2px color-mix(in oklch, var(--color-ink) 4%, transparent), 0 7px 20px color-mix(in oklch, var(--color-ink) 5%, transparent);
+  --shadow-card: 0 1px 2px color-mix(in oklch, var(--color-ink) 4%, transparent), 0 10px 30px color-mix(in oklch, var(--color-ink) 5%, transparent);
+  --shadow-md: 0 16px 40px color-mix(in oklch, var(--color-ink) 12%, transparent);
+  --shadow-lg: 0 30px 72px color-mix(in oklch, var(--color-ink) 20%, transparent);
+  --font-display: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-body: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-mono: ui-monospace, 'SFMono-Regular', Menlo, Monaco, Consolas, monospace;
   --space-2xs: 0.25rem;
   --space-xs: 0.5rem;
   --space-sm: 0.75rem;
@@ -89,6 +95,7 @@
   --color-accent-ink: oklch(18% 0.028 270);
   --color-accent-soft: oklch(30% 0.075 270);
   --color-focus: oklch(82% 0.14 270);
+  --color-focus-ring: color-mix(in oklch, var(--color-accent) 32%, transparent);
   --color-success: oklch(76% 0.14 155);
   --color-success-soft: oklch(27% 0.06 155);
   --color-warning: oklch(78% 0.13 75);
@@ -115,4 +122,6 @@
   --danger: var(--color-danger);
   --shadow-sm: 0 1px 2px color-mix(in oklch, var(--color-graphite) 35%, transparent);
   --shadow-md: 0 8px 24px color-mix(in oklch, var(--color-graphite) 40%, transparent);
+  --shadow-card: 0 1px 2px color-mix(in oklch, var(--color-graphite) 35%, transparent), 0 10px 28px color-mix(in oklch, var(--color-graphite) 32%, transparent);
+  --shadow-lg: 0 28px 65px color-mix(in oklch, var(--color-graphite) 55%, transparent);
 }

@@ -70,7 +70,7 @@ refresh();
 <template>
   <div class="app-page distribution-page">
     <header class="grid gap-6 lg:grid-cols-[minmax(0_1fr)_auto] lg:items-end">
-      <div class="page-heading"><p class="page-kicker">DISTRIBUTION MATRIX</p><h1 class="page-title">分发控制台</h1><p class="page-summary">逐格查看中央仓库到每个 Agent 的覆盖。所有写入操作均提供预览入口。</p></div>
+      <div class="page-heading"><p class="page-kicker">RELATION VIEW</p><h1 class="page-title">分发关系</h1><p class="page-summary">这是用于批量核查覆盖关系的辅助视图；日常分发请从技能库卡片右下角的 Agent 堆叠开始。</p></div>
       <div class="page-toolbar lg:justify-end"><n-button size="small" :loading="loading" @click="refresh"><template #icon><n-icon :component="RefreshOutline" /></template>刷新矩阵</n-button></div>
     </header>
 
