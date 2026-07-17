@@ -135,6 +135,7 @@ export async function searchRemote(query: string, limit = 20): Promise<SearchRes
       description: item.description ?? '',
       stars: item.stars,
       installs: item.installs,
+      repo: item.repo,
     }));
 
     return results.slice(0, limit);

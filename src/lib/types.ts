@@ -125,6 +125,8 @@ export interface SearchResult {
   description: string;
   stars?: number;
   installs?: number;
+  /** skills.sh 返回的仓库标识；用于无法从 source 推断时的候选验证。 */
+  repo?: string;
   /** 本地搜索结果 */
   isLocal?: boolean;
   /** 如果已安装 */

@@ -191,6 +191,20 @@ describe('HTTP API', () => {
     expect(data.error).toContain('name');
   });
 
+  it('validates the new single-Skill update and source association API boundaries', async () => {
+    const missingName = await app.request('/api/skill/update');
+    expect(missingName.status).toBe(400);
+    expect(await missingName.json()).toMatchObject({ code: 'INVALID_REQUEST' });
+
+    const invalidAssociation = await app.request('/api/skill/source-association?name=local%2Ftest', {
+      method: 'POST',
+      body: JSON.stringify({ source: '' }),
+      headers: { 'Content-Type': 'application/json' },
+    });
+    expect(invalidAssociation.status).toBe(400);
+    expect(await invalidAssociation.json()).toMatchObject({ code: 'INVALID_REQUEST' });
+  });
+
   it('POST /api/skill/deploy uses an opaque name query parameter', async () => {
     const res = await app.request('/api/skill/deploy?name=anthropics%2Fskills%2Fskills%2Fpdf&agents=claude-code', {
       method: 'POST',
