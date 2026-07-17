@@ -2,7 +2,7 @@
 import { computed } from 'vue';
 import { useRouter } from 'vue-router';
 import type { AgentInfo, SkillDetail, SkillInfo } from '../../api';
-import AgentStack from './AgentStack.vue';
+import AgentStack from './agent-stack.vue';
 
 const props = defineProps<{ skill: SkillInfo | null; detail: SkillDetail | null; agents: AgentInfo[]; loading?: boolean }>();
 const emit = defineEmits<{ close: []; distribute: [skill: SkillInfo] }>();

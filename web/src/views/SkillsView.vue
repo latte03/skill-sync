@@ -4,10 +4,10 @@ import { useMessage } from 'naive-ui';
 import { RefreshOutline } from '@vicons/ionicons5';
 import { api } from '../api';
 import type { SkillInfo } from '../api';
-import { useSkillWorkspace } from '../composables/useSkillWorkspace';
-import SkillCard from '../components/workspace/SkillCard.vue';
-import SkillInspector from '../components/workspace/SkillInspector.vue';
-import DistributionPicker from '../components/workspace/DistributionPicker.vue';
+import { useSkillWorkspace } from '../composables/use-skill-workspace';
+import SkillCard from '../components/workspace/skill-card.vue';
+import SkillInspector from '../components/workspace/skill-inspector.vue';
+import DistributionPicker from '../components/workspace/distribution-picker.vue';
 
 const message = useMessage();
 const workspace = useSkillWorkspace(message.error);

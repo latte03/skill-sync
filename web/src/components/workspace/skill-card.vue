@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import AgentStack from './AgentStack.vue';
+import AgentStack from './agent-stack.vue';
 import type { AgentInfo, SkillInfo } from '../../api';
 
 defineProps<{ skill: SkillInfo; agents: AgentInfo[]; selected?: boolean }>();
