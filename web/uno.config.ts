@@ -3,31 +3,39 @@ import presetWind3 from '@unocss/preset-wind3';
 
 export default defineConfig({
   presets: [
-    presetWind3(),
-    presetIcons({
-      scale: 1.2,
-    }),
+    presetWind3({ preflight: false }),
+    presetIcons({ scale: 1.2 }),
     presetTypography(),
   ],
-  // 自定义快捷类 — devtool 风格：单 accent，扁平表面，无双屏 mesh 渐变
+  // Shared console primitives. Views still use Wind/Tailwind utilities for their
+  // own composition; these keep the semantic, token-bound parts consistent.
   shortcuts: {
-    'surface-card': 'bg-[var(--surface)] border border-[var(--border)] rounded-[10px] shadow-[var(--shadow-sm)]',
-    'surface-card-hover':
-      'hover:shadow-[var(--shadow-md)] hover:border-[var(--border-strong)] hover:-translate-y-0.5 transition-all duration-150',
-    'section-title': 'text-base font-semibold text-[var(--text)] tracking-tight',
-    'section-desc': 'text-sm text-[var(--text-2)]',
-    'page-title-row':
-      'flex items-center justify-between mb-[22px]',
-    'page-title': 'm-0 text-xl font-bold text-[var(--text)] tracking-[-0.015em]',
+    'app-page': 'grid w-full max-w-[96rem] mx-auto gap-8 px-4 py-8 pb-18 sm:px-8 lg:px-12',
+    'page-heading': 'grid min-w-0 gap-2',
+    'page-kicker': 'm-0 text-[0.6875rem] leading-none font-[var(--font-mono)] font-600 tracking-[0.12em] uppercase text-[var(--color-muted)]',
+    'page-title': 'm-0 font-[var(--font-display)] text-[clamp(2rem_4vw_3.25rem)] leading-[0.98] font-600 tracking-[-0.06em] text-[var(--color-ink)]',
+    'page-summary': 'max-w-[62ch] m-0 text-sm leading-6 text-[var(--color-muted)]',
+    'page-toolbar': 'flex flex-wrap items-center gap-3',
+    'action-row': 'flex flex-wrap items-center gap-3',
+    'inline-actions': 'flex flex-wrap items-center gap-3',
+    'surface': 'border border-[var(--color-rule)] rounded-[var(--radius-lg)] bg-[var(--color-paper)] shadow-[var(--shadow-sm)]',
+    'surface--muted': 'bg-[var(--color-paper-2)]',
+    'metric-label': 'm-0 text-[0.6875rem] leading-none font-[var(--font-mono)] font-600 tracking-[0.1em] uppercase text-[var(--color-muted)]',
+    'meta-label': 'm-0 text-[0.6875rem] leading-none font-[var(--font-mono)] font-600 tracking-[0.1em] uppercase text-[var(--color-muted)]',
+    'mono': 'font-[var(--font-mono)]',
+    'state-success': 'text-[var(--color-success)]',
+    'state-warning': 'text-[var(--color-warning)]',
+    'state-danger': 'text-[var(--color-danger)]',
   },
   theme: {
     colors: {
-      // Single accent, locked across the whole app
-      accent: 'var(--accent)',
-      // Semantic only — used for real state, never as decorative shower
-      'state-success': 'var(--success)',
-      'state-warning': 'var(--warning)',
-      'state-danger': 'var(--danger)',
+      paper: 'var(--color-paper)',
+      canvas: 'var(--color-paper-2)',
+      ink: 'var(--color-ink)',
+      muted: 'var(--color-muted)',
+      rule: 'var(--color-rule)',
+      accent: 'var(--color-accent)',
+      graphite: 'var(--color-graphite)',
     },
   },
 });

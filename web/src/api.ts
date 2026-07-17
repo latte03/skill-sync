@@ -42,6 +42,8 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
 
 import type {
   SkillInfo,
+  SkillDetail as CoreSkillDetail,
+  SkillSource,
   SearchResult,
   UpdateCheckResult,
   SyncResult,
@@ -57,6 +59,7 @@ import type {
 
 export type {
   SkillInfo,
+  SkillSource,
   SearchResult,
   UpdateCheckResult,
   SyncResult,
@@ -76,7 +79,7 @@ export type SyncCommit = GitCommitInfo;
 
 /** /api/skill/detail 响应包装 */
 export interface SkillDetail {
-  skill: SkillInfo;
+  skill: CoreSkillDetail;
   backups: Array<{ version: string; timestamp: string; dir: string }>;
   skillMd: string;
 }
@@ -90,6 +93,38 @@ export interface AIProvidersResponse {
 export interface GitPlatformsResponse {
   platforms: GitPlatformInfo[];
   active: 'github' | 'gitee' | null;
+}
+
+export interface SourceCandidate extends SearchResult {
+  matchedQueries: string[];
+}
+
+export interface VerifiedGitHubSource {
+  source: SkillSource;
+  branch: string;
+  treeSha: string | null;
+  warning: string;
+}
+
+export interface SourceAssociationInput {
+  source: string;
+  skillId?: string;
+  repo?: string;
+  candidateName?: string;
+}
+
+export interface SkillDependencyReview {
+  name: string;
+  version: string;
+  skillDependencies: Array<{ name: string; version: string; installed: boolean }>;
+  packageDependencies: { npm?: string[]; pip?: string[] };
+  requiresExplicitInstall: boolean;
+}
+
+export interface DeployOptions {
+  mode?: 'symlink' | 'copy';
+  force?: boolean;
+  dryRun?: boolean;
 }
 
 // ─── API 函数 ─────────────────────────────────────
@@ -124,24 +159,26 @@ export const api = {
     return request<{ results: UpdateCheckResult[] }>(`/check${qs}`);
   },
 
-  installSkill: (data: { source: string; skill?: string; agents?: string[]; mode?: string }) =>
+  installSkill: (data: { source: string; skill?: string; agents?: string[]; mode?: 'symlink' | 'copy'; noDeploy?: boolean; installDeps?: boolean }) =>
     request<{ success: boolean }>('/skills/install', {
       method: 'POST',
       body: JSON.stringify(data),
     }),
 
-  deploySkill: (name: string, agents?: string[]) =>
+  deploySkill: (name: string, agents?: string[], options: DeployOptions = {}) =>
     request<{ success: boolean }>(`/skill/deploy${qs({ name, agents })}`, {
       method: 'POST',
+      body: JSON.stringify({ agents, ...options }),
     }),
 
-  undeploySkill: (name: string, agents?: string[]) =>
+  undeploySkill: (name: string, agents?: string[], options: Pick<DeployOptions, 'dryRun'> = {}) =>
     request<{ success: boolean }>(`/skill/undeploy${qs({ name, agents })}`, {
       method: 'POST',
+      body: JSON.stringify({ agents, ...options }),
     }),
 
-  removeSkill: (name: string, scope?: 'central' | 'all') =>
-    request<{ success: boolean }>(`/skill${qs({ name, scope })}`, {
+  removeSkill: (name: string, scope?: 'central' | 'all' | 'agent', agent?: string) =>
+    request<{ success: boolean }>(`/skill${qs({ name, scope, agent })}`, {
       method: 'DELETE',
     }),
 
@@ -152,6 +189,40 @@ export const api = {
     }),
 
   getConflicts: () => request<{ conflicts: ConflictInfo[] }>('/conflicts'),
+
+  // ─── 来源关联、更新与依赖审查 ────────────────────────
+
+  getSourceCandidates: (name: string, limit?: number) =>
+    request<{ candidates: SourceCandidate[] }>(`/skill/source-candidates${qs({ name, limit: limit ? String(limit) : undefined })}`),
+
+  verifySourceCandidate: (input: SourceAssociationInput) =>
+    request<{ verified: VerifiedGitHubSource }>('/skill/source-candidates/verify', {
+      method: 'POST', body: JSON.stringify(input),
+    }),
+
+  associateSource: (name: string, input: SourceAssociationInput) =>
+    request<{ success: boolean; source: VerifiedGitHubSource['source']; branch: string; warning: string }>(`/skill/source-association${qs({ name })}`, {
+      method: 'POST', body: JSON.stringify(input),
+    }),
+
+  checkSkillUpdate: (name: string) =>
+    request<{ result: UpdateCheckResult }>(`/skill/update${qs({ name })}`),
+
+  updateSkill: (name: string, options: { force?: boolean; noBackup?: boolean } = {}) =>
+    request<{ success: boolean; result: { name: string; success: boolean; oldVersion: string; newVersion: string; backupDir?: string; error?: string } }>(`/skill/update${qs({ name })}`, {
+      method: 'POST', body: JSON.stringify(options),
+    }),
+
+  getSkillBackups: (name: string) =>
+    request<{ backups: Array<{ id: string; version: string; timestamp: string; dir: string }> }>(`/skill/backups${qs({ name })}`),
+
+  getDependencyReview: (name: string) =>
+    request<{ review: SkillDependencyReview }>(`/skill/dependencies${qs({ name })}`),
+
+  installReviewedDependencies: (name: string, managers?: Array<'npm' | 'pip'>) =>
+    request<{ success: boolean; review: SkillDependencyReview; installedManagers: Array<'npm' | 'pip'> }>(`/skill/dependencies/install${qs({ name })}`, {
+      method: 'POST', body: JSON.stringify(managers ? { managers } : {}),
+    }),
 
   // ─── Git 同步 ─────────────────────────────────────
 

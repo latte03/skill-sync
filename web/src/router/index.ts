@@ -33,6 +33,7 @@ const routes: RouteRecordRaw[] = [
     component: SkillsView,
     meta: {
       title: 'Skills',
+      subtitle: '集中查看 Skill 的来源、版本与分发覆盖',
       navKey: 'skills',
     },
   },
@@ -43,6 +44,7 @@ const routes: RouteRecordRaw[] = [
     props: true,
     meta: {
       title: 'Skill 详情',
+      subtitle: '在一个工作台完成来源、更新、依赖与分发操作',
       navKey: 'skills',
     },
   },
@@ -52,6 +54,7 @@ const routes: RouteRecordRaw[] = [
     component: SearchView,
     meta: {
       title: '搜索',
+      subtitle: '从本地与 skills.sh 发现可安装的 Skill',
       navKey: 'search',
     },
   },
@@ -61,6 +64,7 @@ const routes: RouteRecordRaw[] = [
     component: ManageView,
     meta: {
       title: '管理',
+      subtitle: '以分发矩阵为中心管理 Agent 覆盖',
       navKey: 'manage',
     },
   },
@@ -70,6 +74,7 @@ const routes: RouteRecordRaw[] = [
     component: SyncView,
     meta: {
       title: '同步',
+      subtitle: '首次完成远程配置，之后只关注同步健康度',
       navKey: 'sync',
     },
   },
@@ -79,6 +84,7 @@ const routes: RouteRecordRaw[] = [
     component: SettingsView,
     meta: {
       title: '设置',
+      subtitle: '配置 Git 平台、AI 提供商与网络代理',
       navKey: 'settings',
     },
   },
@@ -88,6 +94,7 @@ const routes: RouteRecordRaw[] = [
     component: ConflictsView,
     meta: {
       title: '冲突',
+      subtitle: '检查并收敛中央仓库与 Agent 目录的不一致',
       navKey: 'conflicts',
     },
   },
@@ -97,6 +104,7 @@ const routes: RouteRecordRaw[] = [
     component: StatusView,
     meta: {
       title: '状态',
+      subtitle: '查看本地仓库、Agent 与更新的整体运行状态',
       navKey: 'status',
     },
   },

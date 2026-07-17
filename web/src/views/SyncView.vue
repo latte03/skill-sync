@@ -1,798 +1,107 @@
-<template>
-  <div class="sync-page">
-    <!-- ─── Page Header ─── -->
-    <div class="page-title-row">
-      <h1 class="page-title">Git 同步</h1>
-      <n-button size="small" quaternary @click="refreshAll" :loading="loading">
-        刷新
-      </n-button>
-    </div>
-
-    <n-spin :show="loading">
-      <!-- ─── Git 平台选择 ─── -->
-      <div v-if="!loading" class="section-card">
-        <div class="section-header">
-          <n-icon size="18" class="section-icon"><GitNetworkOutline /></n-icon>
-          <span class="section-title">Git 平台</span>
-        </div>
-        <div class="platform-selector">
-          <div
-            v-for="p in gitPlatforms"
-            :key="p.id"
-            class="platform-option"
-            :class="{ active: activePlatform === p.id, bound: p.configured }"
-            @click="selectPlatform(p.id)"
-          >
-            <BrandIcon :providerId="p.id" :providerName="p.name" :size="28" />
-            <div class="platform-option-info">
-              <span class="platform-option-name">{{ p.name }}</span>
-              <span v-if="p.configured && p.username" class="platform-option-user">{{ p.username }}</span>
-              <span v-else-if="!p.configured" class="platform-option-unbound">未绑定</span>
-            </div>
-            <n-icon v-if="activePlatform === p.id" size="18" class="platform-check"><CheckmarkCircle /></n-icon>
-          </div>
-        </div>
-        <div v-if="!currentPlatform?.configured" class="platform-unbound-hint">
-<n-icon size="14" class="hint-icon"><AlertCircleOutline /></n-icon>
-            <span>当前平台未绑定身份凭证，请先前往<a @click="goToSettings">设置</a>绑定</span>
-        </div>
-      </div>
-
-      <!-- ─── Not Initialized ─── -->
-      <div v-if="!loading && status && !status.isRepo" class="empty-card">
-        <n-icon size="48">
-          <GitBranchOutline />
-        </n-icon>
-        <p class="empty-title">Git 仓库未初始化</p>
-        <p class="empty-desc">初始化 Git 仓库后即可同步 skill 到远程</p>
-        <n-button type="primary" size="small" @click="doInit" :loading="initLoading">
-          初始化 Git 仓库
-        </n-button>
-      </div>
-
-      <!-- ─── Repo Info ─── -->
-      <template v-else-if="status">
-        <!-- Status Cards -->
-        <div class="stats-grid">
-          <div class="stat-card">
-            <div class="stat-value">{{ status.branch ?? '—' }}</div>
-            <div class="stat-label">当前分支</div>
-          </div>
-
-          <div class="stat-card" :class="{ 'stat-warn': status.ahead > 0 }">
-            <div class="stat-value">{{ status.ahead }}</div>
-            <div class="stat-label">领先远程</div>
-          </div>
-
-          <div class="stat-card" :class="{ 'stat-warn': status.behind > 0 }">
-            <div class="stat-value">{{ status.behind }}</div>
-            <div class="stat-label">落后远程</div>
-          </div>
-
-          <div class="stat-card" :class="{ 'stat-warn': status.uncommittedChanges > 0 }">
-            <div class="stat-value">{{ status.uncommittedChanges }}</div>
-            <div class="stat-label">未提交变更</div>
-          </div>
-        </div>
-
-        <!-- ─── Sync Actions ─── -->
-        <div class="section-card">
-          <div class="section-header">
-            <n-icon size="18" class="section-icon"><CloudUploadOutline /></n-icon>
-            <span class="section-title">同步操作</span>
-          </div>
-
-          <div class="sync-actions">
-            <div class="action-row">
-              <n-input
-                v-model:value="commitMessage"
-                placeholder="提交信息（留空将自动生成）"
-                size="small"
-                style="flex: 1"
-              />
-              <n-button
-                size="small"
-                quaternary
-                @click="generateCommit"
-                :loading="generatingCommit"
-              >
-                <template #icon>
-                  <n-icon><SparklesOutline /></n-icon>
-                </template>
-                AI 生成
-              </n-button>
-              <n-button
-                type="primary"
-                size="small"
-                :loading="pushLoading"
-                :disabled="!status.hasRemote"
-                @click="doPush"
-              >
-                <template #icon>
-                  <n-icon><CloudUploadOutline /></n-icon>
-                </template>
-                推送
-              </n-button>
-              <n-button
-                size="small"
-                :loading="pullLoading"
-                :disabled="!status.hasRemote"
-                @click="doPull"
-              >
-                <template #icon>
-                  <n-icon><CloudDownloadOutline /></n-icon>
-                </template>
-                拉取
-              </n-button>
-            </div>
-
-            <div v-if="!status.hasRemote" class="no-remote-hint">
-              <n-icon size="14" class="hint-icon"><AlertCircleOutline /></n-icon>
-              <span>尚未配置远程仓库，请在下方设置远程仓库地址</span>
-            </div>
-          </div>
-        </div>
-
-        <!-- ─── Remote Config ─── -->
-        <div class="section-card">
-          <div class="section-header">
-            <n-icon size="18" class="section-icon"><GitNetworkOutline /></n-icon>
-            <span class="section-title">远程仓库</span>
-          </div>
-
-          <div v-if="status.remotes.length > 0" class="remote-list">
-            <div v-for="remote in status.remotes" :key="remote.name" class="remote-item">
-              <span class="remote-name">{{ remote.name }}</span>
-              <code class="remote-url">{{ remote.fetchUrl }}</code>
-            </div>
-          </div>
-
-          <div class="remote-set-row">
-            <n-input
-              v-model:value="remoteUrl"
-              placeholder="https://github.com/user/skill-repo.git"
-              size="small"
-              style="flex: 1"
-            />
-            <n-button size="small" @click="doSetRemote" :loading="remoteLoading">
-              设置
-            </n-button>
-          </div>
-        </div>
-
-        <!-- ─── Changed Files ─── -->
-        <div v-if="status.changedFiles.length > 0" class="section-card">
-          <div class="section-header">
-            <n-icon size="18" class="section-icon"><DocumentTextOutline /></n-icon>
-            <span class="section-title">未提交变更 ({{ status.changedFiles.length }})</span>
-          </div>
-          <div class="file-list">
-            <div v-for="file in status.changedFiles" :key="file.path" class="file-item">
-              <span
-                class="file-status-badge"
-                :class="`status-${file.status}`"
-              >
-                {{ fileStatusLabel(file.status) }}
-              </span>
-              <code class="file-path">{{ file.path }}</code>
-            </div>
-          </div>
-        </div>
-
-        <!-- ─── Commit History ─── -->
-        <div class="section-card">
-          <div class="section-header">
-            <n-icon size="18" class="section-icon"><TimeOutline /></n-icon>
-            <span class="section-title">提交历史</span>
-          </div>
-
-          <div v-if="commits.length > 0" class="commit-timeline">
-            <div v-for="commit in commits" :key="commit.hash" class="commit-item">
-              <div class="commit-dot" :class="{ 'commit-head': commit.refs.includes('HEAD') }"></div>
-              <div class="commit-body">
-                <div class="commit-message">{{ commit.message }}</div>
-                <div class="commit-meta">
-                  <span class="commit-author">{{ commit.author }}</span>
-                  <span class="commit-hash">{{ commit.hash.substring(0, 7) }}</span>
-                  <span class="commit-date">{{ formatDate(commit.date) }}</span>
-                  <span v-if="commit.refs" class="commit-refs">{{ commit.refs }}</span>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <n-empty v-else description="暂无提交记录" class="empty-inline" />
-        </div>
-      </template>
-    </n-spin>
-  </div>
-</template>
-
 <script setup lang="ts">
-import { ref, onMounted, computed } from 'vue';
+import { computed, ref, shallowRef } from 'vue';
 import { useRouter } from 'vue-router';
 import { useMessage } from 'naive-ui';
-import {
-    GitBranchOutline,
-    GitNetworkOutline,
-    CloudUploadOutline,
-    CloudDownloadOutline,
-    DocumentTextOutline,
-    TimeOutline,
-    AlertCircleOutline,
-    SparklesOutline,
-    CheckmarkCircle,
-  } from '@vicons/ionicons5';
-import BrandIcon from '../components/brand-icon.vue';
-import { api, type SyncStatusInfo, type SyncCommit, type GitPlatformInfo } from '../api';
+import { CloudDownloadOutline, CloudUploadOutline, LinkOutline, RefreshOutline, SettingsOutline } from '@vicons/ionicons5';
+import { api } from '../api';
+import type { GitPlatformInfo, SyncCommit, SyncStatusInfo } from '../api';
 
-const message = useMessage();
 const router = useRouter();
-
-const loading = ref(false);
+const message = useMessage();
 const status = ref<SyncStatusInfo | null>(null);
 const commits = ref<SyncCommit[]>([]);
-const commitMessage = ref('');
-const remoteUrl = ref('');
+const platforms = ref<GitPlatformInfo[]>([]);
+const loading = ref(false);
+const initializing = ref(false);
+const savingRemote = ref(false);
+const pushing = ref(false);
+const pulling = ref(false);
+const remoteUrl = shallowRef('');
+const commitMessage = shallowRef('');
 
-// Git 平台
-const gitPlatforms = ref<GitPlatformInfo[]>([]);
-const activePlatform = ref<'github' | 'gitee'>('github');
+const activePlatform = computed(() => platforms.value.find(platform => platform.enabled));
+const needsSetup = computed(() => !status.value?.isRepo || !status.value.hasRemote);
+const health = computed(() => {
+  if (!status.value?.isRepo) return { label: '未初始化', type: 'warning' as const, detail: '中央仓库尚未是 Git 仓库' };
+  if (!status.value.hasRemote) return { label: '待连接', type: 'warning' as const, detail: '需要配置远程仓库地址' };
+  if (status.value.behind > 0) return { label: '需要拉取', type: 'warning' as const, detail: `远程领先 ${status.value.behind} 个提交` };
+  if (status.value.ahead > 0 || status.value.uncommittedChanges > 0) return { label: '待推送', type: 'info' as const, detail: '本地存在可同步的变更' };
+  return { label: '已同步', type: 'success' as const, detail: '本地与远程状态一致' };
+});
 
-const pushLoading = ref(false);
-const pullLoading = ref(false);
-const initLoading = ref(false);
-const remoteLoading = ref(false);
-const generatingCommit = ref(false);
-
-const currentPlatform = computed(() =>
-  gitPlatforms.value.find(p => p.id === activePlatform.value)
-);
-
-async function refreshAll() {
+async function refresh() {
   loading.value = true;
   try {
-    const [statusRes, logRes, platformsRes] = await Promise.all([
-      api.getSyncStatus(),
-      api.getSyncLog(30),
-      api.getGitPlatforms(),
-    ]);
-    status.value = statusRes;
-    commits.value = logRes.commits;
-    gitPlatforms.value = platformsRes.platforms;
-    if (platformsRes.active) {
-      activePlatform.value = platformsRes.active;
-    }
-  } catch (e) {
-    message.error(`加载失败: ${(e as Error).message}`);
+    const [syncResponse, logResponse, platformResponse] = await Promise.all([api.getSyncStatus(), api.getSyncLog(12), api.getGitPlatforms()]);
+    status.value = syncResponse;
+    commits.value = logResponse.commits;
+    platforms.value = platformResponse.platforms;
+  } catch (error) {
+    message.error(`加载同步状态失败: ${(error as Error).message}`);
   } finally {
     loading.value = false;
   }
 }
 
-async function selectPlatform(platform: 'github' | 'gitee') {
-  try {
-    await api.enableGitPlatform(platform, true);
-    activePlatform.value = platform;
-    message.success(`已切换到 ${platform === 'github' ? 'GitHub' : 'Gitee'}`);
-    await refreshAll();
-  } catch (e) {
-    message.error(`切换失败: ${(e as Error).message}`);
-  }
+async function initRepo() {
+  initializing.value = true;
+  try { await api.initGit(); message.success('Git 仓库已初始化'); await refresh(); }
+  catch (error) { message.error(`初始化失败: ${(error as Error).message}`); }
+  finally { initializing.value = false; }
 }
 
-function goToSettings() {
-  router.push({ name: 'settings' });
+async function setRemote() {
+  if (!remoteUrl.value.trim()) return;
+  savingRemote.value = true;
+  try { await api.setRemote(remoteUrl.value.trim()); remoteUrl.value = ''; message.success('远程仓库已连接'); await refresh(); }
+  catch (error) { message.error(`连接远程失败: ${(error as Error).message}`); }
+  finally { savingRemote.value = false; }
 }
 
-async function doPush() {
-  pushLoading.value = true;
-  try {
-    const result = await api.pushSync(commitMessage.value || undefined);
-    if (result.success) {
-      if (result.pushed > 0) {
-        message.success(`已推送 ${result.pushed} 个变更`);
-      } else {
-        message.info('无变更可推送');
-      }
-      commitMessage.value = '';
-      await refreshAll();
-    } else {
-      message.error(`推送失败: ${result.error}`);
-    }
-  } catch (e) {
-    message.error(`推送失败: ${(e as Error).message}`);
-  } finally {
-    pushLoading.value = false;
-  }
+async function push() {
+  pushing.value = true;
+  try { const result = await api.pushSync(commitMessage.value.trim() || undefined); if (!result.success) throw new Error(result.error); commitMessage.value = ''; message.success(result.pushed ? `已推送 ${result.pushed} 个变更` : '没有需要推送的变更'); await refresh(); }
+  catch (error) { message.error(`推送失败: ${(error as Error).message}`); }
+  finally { pushing.value = false; }
 }
 
-async function doPull() {
-  pullLoading.value = true;
-  try {
-    const result = await api.pullSync();
-    if (result.success) {
-      if (result.pulled > 0) {
-        message.success(`已拉取 ${result.pulled} 个变更`);
-      } else {
-        message.info('无远程变更');
-      }
-      await refreshAll();
-    } else if (result.conflicts.length > 0) {
-      message.warning(`合并冲突 (${result.conflicts.length} 个文件): ${result.conflicts.join(', ')}`);
-    } else {
-      message.error(`拉取失败: ${result.error}`);
-    }
-  } catch (e) {
-    message.error(`拉取失败: ${(e as Error).message}`);
-  } finally {
-    pullLoading.value = false;
-  }
+async function pull() {
+  pulling.value = true;
+  try { const result = await api.pullSync(); if (!result.success) throw new Error(result.error ?? result.conflicts.join('、')); message.success(result.pulled ? `已拉取 ${result.pulled} 个变更` : '没有远程变更'); await refresh(); }
+  catch (error) { message.error(`拉取失败: ${(error as Error).message}`); }
+  finally { pulling.value = false; }
 }
 
-async function doInit() {
-  initLoading.value = true;
-  try {
-    await api.initGit();
-    message.success('Git 仓库已初始化');
-    await refreshAll();
-  } catch (e) {
-    message.error(`初始化失败: ${(e as Error).message}`);
-  } finally {
-    initLoading.value = false;
-  }
-}
-
-async function doSetRemote() {
-  if (!remoteUrl.value.trim()) {
-    message.warning('请输入远程仓库地址');
-    return;
-  }
-  remoteLoading.value = true;
-  try {
-    await api.setRemote(remoteUrl.value.trim());
-    message.success('远程仓库已设置');
-    remoteUrl.value = '';
-    await refreshAll();
-  } catch (e) {
-    message.error(`设置失败: ${(e as Error).message}`);
-  } finally {
-    remoteLoading.value = false;
-  }
-}
-
-function fileStatusLabel(status: string): string {
-  switch (status) {
-    case 'untracked': return '新';
-    case 'modified': return '改';
-    case 'deleted': return '删';
-    case 'staged': return '暂';
-    default: return status;
-  }
-}
-
-function formatDate(dateStr: string): string {
-  try {
-    const d = new Date(dateStr);
-    return d.toLocaleString('zh-CN', {
-      month: '2-digit',
-      day: '2-digit',
-      hour: '2-digit',
-      minute: '2-digit',
-    });
-  } catch {
-    return dateStr;
-  }
-}
-
-onMounted(() => {
-  refreshAll();
-});
-
-async function generateCommit() {
-  generatingCommit.value = true;
-  try {
-    const result = await api.generateCommitMessage();
-    commitMessage.value = result.message;
-    message.success(`AI 已生成 commit 消息（${result.fileCount} 个文件变更）`);
-  } catch (e) {
-    message.error(`生成失败: ${(e as Error).message}`);
-  } finally {
-    generatingCommit.value = false;
-  }
-}
+refresh();
 </script>
 
-<style scoped>
-.sync-page {
-  max-width: 860px;
-  margin: 0 auto;
-}
+<template>
+  <div class="app-page sync-page">
+    <header class="grid gap-6 lg:grid-cols-[minmax(0_1fr)_auto] lg:items-end"><div class="page-heading"><p class="page-kicker">GIT SYNCHRONIZATION</p><h1 class="page-title">同步状态</h1><p class="page-summary">首次连接完成后，这里只保留影响同步决策的状态与操作。</p></div><div class="page-toolbar lg:justify-end"><n-button size="small" :loading="loading" @click="refresh"><template #icon><n-icon :component="RefreshOutline" /></template>刷新</n-button></div></header>
 
-/* ─── Empty / Not Initialized ───────────────────────────────────── */
-.empty-card {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 8px;
-  padding: 60px 20px;
-  text-align: center;
-}
+    <n-spin :show="loading">
+      <template v-if="status">
+        <section v-if="needsSetup" class="grid gap-8 rounded-[var(--radius-lg)] bg-[var(--color-graphite)] p-6 text-[var(--color-graphite-ink)] shadow-[var(--shadow-md)] sm:p-8">
+          <div class="max-w-[58ch]"><p class="m-0 text-[0.6875rem] font-[var(--font-mono)] tracking-[0.12em] uppercase text-[var(--color-accent)]">FIRST-TIME SETUP</p><h2 class="my-3 font-[var(--font-display)] text-3xl leading-none tracking-[-0.06em]">建立远程同步</h2><p class="m-0 text-sm leading-6 text-[var(--color-graphite-ink)]/70">依次初始化中央仓库、确认 Git 平台凭证、再连接远程仓库。完成后页面将切换为日常同步视图。</p></div>
+          <ol class="grid list-none gap-2 p-0 m-0">
+            <li :class="['grid gap-3 rounded-[var(--radius-md)] border p-4 sm:grid-cols-[auto_minmax(0_1fr)_auto] sm:items-center', status.isRepo ? 'border-[var(--color-success)]/45 bg-[var(--color-success)]/12' : 'border-white/10 bg-white/5']"><span class="font-[var(--font-mono)] text-xs text-[var(--color-muted)]">01</span><div><strong class="text-sm">初始化中央仓库</strong><p class="m-0 text-xs text-[var(--color-graphite-ink)]/64">{{ status.isRepo ? 'Git 仓库已就绪' : '在本地创建 Git 仓库' }}</p></div><n-button v-if="!status.isRepo" size="small" type="primary" :loading="initializing" @click="initRepo">初始化</n-button></li>
+            <li :class="['grid gap-3 rounded-[var(--radius-md)] border p-4 sm:grid-cols-[auto_minmax(0_1fr)_auto] sm:items-center', activePlatform?.configured ? 'border-[var(--color-success)]/45 bg-[var(--color-success)]/12' : 'border-white/10 bg-white/5']"><span class="font-[var(--font-mono)] text-xs text-[var(--color-muted)]">02</span><div><strong class="text-sm">确认平台凭证</strong><p class="m-0 text-xs text-[var(--color-graphite-ink)]/64">{{ activePlatform?.configured ? `${activePlatform.name} 已连接` : '先在连接设置中保存 Git Token' }}</p></div><n-button v-if="!activePlatform?.configured" size="small" @click="router.push({ name: 'settings' })"><template #icon><n-icon :component="SettingsOutline" /></template>去设置</n-button></li>
+            <li :class="['grid gap-3 rounded-[var(--radius-md)] border p-4 sm:grid-cols-[auto_minmax(0_1fr)_auto] sm:items-center', status.hasRemote ? 'border-[var(--color-success)]/45 bg-[var(--color-success)]/12' : 'border-white/10 bg-white/5']"><span class="font-[var(--font-mono)] text-xs text-[var(--color-muted)]">03</span><div><strong class="text-sm">连接远程仓库</strong><p class="m-0 text-xs text-[var(--color-graphite-ink)]/64">{{ status.hasRemote ? '远程地址已保存' : '填写 HTTPS 或 SSH 远程地址' }}</p></div><div v-if="status.isRepo && !status.hasRemote" class="grid gap-2 sm:flex"><n-input v-model:value="remoteUrl" placeholder="https://github.com/owner/skill-sync.git" /><n-button type="primary" size="small" :loading="savingRemote" @click="setRemote"><template #icon><n-icon :component="LinkOutline" /></template>连接</n-button></div></li>
+          </ol>
+        </section>
 
-.empty-card .n-icon {
-  color: var(--text-3);
-}
+        <template v-else>
+          <section class="grid gap-6 rounded-[var(--radius-lg)] bg-[var(--color-graphite)] p-6 text-[var(--color-graphite-ink)] shadow-[var(--shadow-md)] sm:flex sm:items-start sm:justify-between sm:p-8"><div><p class="m-0 text-[0.6875rem] font-[var(--font-mono)] tracking-[0.12em] uppercase text-[var(--color-accent)]">SYNC HEALTH</p><strong class="mt-3 block font-[var(--font-display)] text-[clamp(2.25rem_5vw_4rem)] leading-none tracking-[-0.07em]">{{ health.label }}</strong><p class="mt-3 mb-0 text-sm text-[var(--color-graphite-ink)]/68">{{ health.detail }}</p></div><n-tag :type="health.type" size="large">{{ status.branch ?? '无分支' }}</n-tag></section>
 
-.empty-title {
-  margin: 8px 0 0;
-  font-size: 16px;
-  font-weight: 600;
-  color: var(--text);
-}
+          <section class="grid gap-3 sm:grid-cols-2 xl:grid-cols-4"><article v-for="metric in [{ label: 'UNCOMMITTED', value: status.uncommittedChanges, note: '待提交文件' }, { label: 'AHEAD', value: status.ahead, note: '本地领先提交' }, { label: 'BEHIND', value: status.behind, note: '远程领先提交' }, { label: 'REMOTE', value: status.remotes.length, note: '已连接远程' }]" :key="metric.label" class="surface grid gap-2 p-5"><p class="metric-label">{{ metric.label }}</p><strong class="font-[var(--font-display)] text-3xl leading-none tracking-[-0.06em] text-[var(--color-ink)]">{{ metric.value }}</strong><span class="text-xs text-[var(--color-muted)]">{{ metric.note }}</span></article></section>
 
-.empty-desc {
-  margin: 0 0 12px;
-  font-size: 13px;
-  color: var(--text-2);
-}
+          <section class="surface grid gap-6 p-6 lg:grid-cols-[minmax(0_1fr)_minmax(22rem_0.9fr)] lg:items-end"><div><p class="meta-label">SYNC ACTIONS</p><h2 class="my-2 font-[var(--font-display)] text-2xl leading-none tracking-[-0.05em] text-[var(--color-ink)]">处理变更</h2><p class="m-0 text-sm leading-6 text-[var(--color-muted)]">推送前可写入说明；拉取会沿用服务端的安全同步策略。</p></div><div class="grid gap-2 sm:grid-cols-[minmax(0_1fr)_auto_auto] sm:items-center"><n-input v-model:value="commitMessage" placeholder="提交说明（可留空）" /><n-button type="primary" :loading="pushing" @click="push"><template #icon><n-icon :component="CloudUploadOutline" /></template>推送</n-button><n-button :loading="pulling" @click="pull"><template #icon><n-icon :component="CloudDownloadOutline" /></template>拉取</n-button></div></section>
 
-/* ─── Stats Grid ─────────────────────────────────────────────────── */
-.stats-grid {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 10px;
-  margin-bottom: 18px;
-}
+          <section class="grid gap-4 lg:grid-cols-2"><article class="surface grid content-start gap-3 p-6"><p class="meta-label">REMOTE TARGETS</p><div v-for="remote in status.remotes" :key="remote.name" class="grid gap-1 border-b border-[var(--color-rule)] py-3 last:border-b-0"><strong class="text-xs text-[var(--color-ink)]">{{ remote.name }}</strong><code class="break-words font-[var(--font-mono)] text-[0.6875rem] text-[var(--color-muted)]">{{ remote.fetchUrl }}</code></div><n-empty v-if="status.remotes.length === 0" size="small" description="未连接远程仓库" /></article><article class="surface grid content-start gap-3 p-6"><p class="meta-label">PENDING FILES</p><div v-for="file in status.changedFiles.slice(0, 8)" :key="file.path" class="grid gap-1 border-b border-[var(--color-rule)] py-3 last:border-b-0"><span class="text-xs font-600 text-[var(--color-ink)]">{{ file.status }}</span><code class="break-words font-[var(--font-mono)] text-[0.6875rem] text-[var(--color-muted)]">{{ file.path }}</code></div><n-empty v-if="status.changedFiles.length === 0" size="small" description="工作区干净" /></article></section>
 
-.stat-card {
-  padding: 14px 16px;
-  border-radius: 10px;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  box-shadow: var(--shadow-sm);
-}
-
-.stat-card.stat-warn {
-  border-color: color-mix(in srgb, var(--warning) 35%, var(--border));
-}
-
-.stat-value {
-  font-size: 18px;
-  font-weight: 700;
-  color: var(--text);
-  line-height: 1.2;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  letter-spacing: -0.015em;
-}
-
-.stat-card.stat-warn .stat-value {
-  color: var(--warning);
-}
-
-.stat-label {
-  font-size: 12px;
-  color: var(--text-3);
-  font-weight: 500;
-  margin-top: 2px;
-}
-
-/* ─── Section Card ───────────────────────────────────────────────── */
-.section-card {
-  padding: 16px 18px;
-  border-radius: 10px;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  box-shadow: var(--shadow-sm);
-  margin-bottom: 12px;
-}
-
-.section-header {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 14px;
-}
-
-.section-icon {
-  color: var(--text-2);
-}
-
-.section-title {
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--text);
-}
-
-/* ─── Sync Actions ───────────────────────────────────────────────── */
-.sync-actions {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.action-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.no-remote-hint,
-.platform-unbound-hint {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 13px;
-  color: var(--warning);
-}
-
-.platform-unbound-hint {
-  margin-top: 12px;
-  padding: 10px 14px;
-  border-radius: 8px;
-  background: color-mix(in srgb, var(--warning) 8%, transparent);
-}
-
-.platform-unbound-hint a {
-  color: var(--accent);
-  cursor: pointer;
-  text-decoration: underline;
-}
-
-.hint-icon {
-  color: var(--warning);
-}
-
-/* ─── Remote Config ──────────────────────────────────────────────── */
-.remote-list {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  margin-bottom: 12px;
-}
-
-.remote-item {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 8px 12px;
-  border-radius: 8px;
-  background: var(--surface-2);
-  border: 1px solid var(--border);
-}
-
-.remote-name {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--text);
-  min-width: 60px;
-}
-
-.remote-url {
-  font-family: 'SF Mono', Monaco, monospace;
-  font-size: 12px;
-  color: var(--accent);
-  word-break: break-all;
-}
-
-.remote-set-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-/* ─── Changed Files ──────────────────────────────────────────────── */
-.file-list {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  max-height: 240px;
-  overflow-y: auto;
-}
-
-.file-item {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 6px 0;
-}
-
-.file-status-badge {
-  font-size: 10px;
-  font-weight: 700;
-  width: 22px;
-  height: 22px;
-  border-radius: 4px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-}
-
-.status-untracked {
-  background: color-mix(in srgb, var(--success) 14%, transparent);
-  color: color-mix(in srgb, var(--success) 80%, #000);
-}
-
-.status-modified {
-  background: color-mix(in srgb, var(--warning) 14%, transparent);
-  color: color-mix(in srgb, var(--warning) 75%, #000);
-}
-
-.status-deleted {
-  background: color-mix(in srgb, var(--danger) 14%, transparent);
-  color: color-mix(in srgb, var(--danger) 78%, #000);
-}
-
-.status-staged {
-  background: var(--accent-soft);
-  color: var(--accent);
-}
-
-.file-path {
-  font-family: 'SF Mono', Monaco, monospace;
-  font-size: 12px;
-  color: var(--text-2);
-  word-break: break-all;
-}
-
-/* ─── Commit Timeline ────────────────────────────────────────────── */
-.commit-timeline {
-  display: flex;
-  flex-direction: column;
-  gap: 0;
-}
-
-.commit-item {
-  display: flex;
-  gap: 14px;
-  padding: 10px 0;
-  position: relative;
-}
-
-.commit-item:not(:last-child)::before {
-  content: '';
-  position: absolute;
-  left: 5px;
-  top: 24px;
-  bottom: -10px;
-  width: 2px;
-  background: var(--border);
-}
-
-.commit-dot {
-  width: 12px;
-  height: 12px;
-  border-radius: 50%;
-  border: 2px solid var(--text-3);
-  background: var(--surface);
-  flex-shrink: 0;
-  margin-top: 4px;
-  position: relative;
-  z-index: 1;
-}
-
-.commit-dot.commit-head {
-  border-color: var(--accent);
-  background: var(--accent);
-}
-
-.commit-body {
-  flex: 1;
-  min-width: 0;
-}
-
-.commit-message {
-  font-size: 13.5px;
-  font-weight: 500;
-  color: var(--text);
-  margin-bottom: 4px;
-  word-break: break-word;
-}
-
-.commit-meta {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex-wrap: wrap;
-}
-
-.commit-author {
-  font-size: 12px;
-  color: var(--text-2);
-  font-weight: 500;
-}
-
-.commit-hash {
-  font-family: 'SF Mono', Monaco, monospace;
-  font-size: 11px;
-  color: var(--text-3);
-}
-
-.commit-date {
-  font-size: 12px;
-  color: var(--text-3);
-}
-
-.commit-refs {
-  font-size: 10px;
-  font-weight: 600;
-  color: var(--accent);
-  background: var(--accent-soft);
-  padding: 1px 6px;
-  border-radius: 4px;
-}
-
-.empty-inline {
-  padding: 32px 0;
-}
-
-/* ─── Git 平台选择器 ──────────────────────────────────────────────── */
-.platform-selector {
-  display: flex;
-  gap: 12px;
-  flex-wrap: wrap;
-}
-
-.platform-option {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 12px 16px;
-  border-radius: 10px;
-  background: var(--surface-2);
-  border: 2px solid var(--border);
-  cursor: pointer;
-  transition: all 0.15s ease;
-  min-width: 160px;
-}
-
-.platform-option:hover {
-  background: var(--surface-hover);
-  border-color: var(--border-strong);
-}
-
-.platform-option.active {
-  border-color: var(--success);
-  background: color-mix(in srgb, var(--success) 8%, transparent);
-}
-
-.platform-option.bound {
-  background: var(--surface);
-}
-
-.platform-option-info {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.platform-option-name {
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--text);
-}
-
-.platform-option-user {
-  font-size: 12px;
-  color: var(--success);
-}
-
-.platform-option-unbound {
-  font-size: 12px;
-  color: var(--text-3);
-}
-
-.platform-check {
-  color: var(--success);
-}
-
-/* ─── Responsive ──────────────────────────────────────────────────── */
-@media (max-width: 768px) {
-  .stats-grid {
-    grid-template-columns: repeat(2, 1fr);
-  }
-}
-</style>
+          <section class="surface grid gap-6 p-6"><div><p class="meta-label">RECENT COMMITS</p><h2 class="mt-2 mb-0 font-[var(--font-display)] text-2xl leading-none tracking-[-0.05em] text-[var(--color-ink)]">最近提交</h2></div><ol v-if="commits.length" class="grid list-none gap-4 p-0 m-0"><li v-for="commit in commits" :key="commit.hash" class="grid grid-cols-[auto_minmax(0_1fr)] gap-3"><span class="mt-1.5 h-2 w-2 rounded-full bg-[var(--color-accent)] shadow-[0_0_0_4px_var(--color-accent-soft)]"></span><div><strong class="text-sm text-[var(--color-ink)]">{{ commit.message }}</strong><p class="mt-1 mb-0 break-words font-[var(--font-mono)] text-[0.6875rem] text-[var(--color-muted)]">{{ commit.author }} · {{ commit.hash.slice(0, 7) }} · {{ commit.date }}</p></div></li></ol><n-empty v-else description="尚无提交记录" /></section>
+        </template>
+      </template>
+    </n-spin>
+  </div>
+</template>

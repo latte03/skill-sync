@@ -3,6 +3,8 @@ import App from './App.vue';
 import router from './router';
 import naive from './naive-ui-provider';
 import 'virtual:uno.css';
+import '../tokens.css';
+import './styles/base.css';
 
 const app = createApp(App);
 

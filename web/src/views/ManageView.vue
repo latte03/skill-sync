@@ -1,375 +1,110 @@
-<template>
-  <div class="manage-page">
-    <div class="page-title-row">
-      <h1 class="page-title">本地 Skill 管理</h1>
-      <n-button size="small" quaternary @click="refresh" :loading="loading">刷新</n-button>
-    </div>
-
-    <n-spin :show="loading">
-      <!-- 分发状态表格 -->
-      <n-card size="small" title="分发状态">
-        <n-table :bordered="false" :single-line="false" size="small" striped>
-          <thead>
-            <tr>
-              <th>Skill</th>
-              <th>版本</th>
-              <th v-for="agent in installedAgents" :key="agent">{{ agent }}</th>
-              <th>操作</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="skill in skills" :key="skill.name">
-              <td>
-                <n-space size="small" align="center">
-                  <span class="skill-name-cell" @click="viewDetail(skill.name)">{{ skill.name }}</span>
-                  <n-tag v-if="skill.tags.length > 0" size="tiny" round
-                    v-for="t in skill.tags.slice(0, 2)" :key="t">{{ t }}</n-tag>
-                </n-space>
-              </td>
-              <td>v{{ skill.version }}</td>
-              <td v-for="agent in installedAgents" :key="agent" class="deploy-cell">
-                <n-tag
-                  size="tiny"
-                  :type="skill.agents.includes(agent) ? 'success' : 'default'"
-                  round
-                >
-                  {{ skill.agents.includes(agent) ? '✓ 已分发' : '—' }}
-                </n-tag>
-              </td>
-              <td>
-                <n-space size="small">
-                  <n-button
-                    size="tiny"
-                    type="primary"
-                    ghost
-                    @click="openDeployDialog(skill)"
-                  >
-                    分发
-                  </n-button>
-                  <n-button
-                    size="tiny"
-                    type="warning"
-                    ghost
-                    @click="openUndeployDialog(skill)"
-                  >
-                    取消
-                  </n-button>
-                </n-space>
-              </td>
-            </tr>
-          </tbody>
-        </n-table>
-        <n-empty v-if="!loading && skills.length === 0" description="暂无 skill" />
-      </n-card>
-
-      <n-divider />
-
-      <!-- 标签管理 -->
-      <n-card size="small" title="标签管理">
-        <n-space align="center" style="margin-bottom: 12px">
-          <n-select
-            v-model:value="tagFilter"
-            :options="tagOptions"
-            placeholder="按标签筛选..."
-            clearable
-            size="small"
-            style="width: 200px"
-          />
-          <n-input
-            v-model:value="newTagName"
-            placeholder="新建标签..."
-            size="small"
-            style="width: 160px"
-            @keyup.enter="createTagForSelected"
-          />
-          <n-select
-            v-model:value="tagTargetSkill"
-            :options="skillOptions"
-            placeholder="选择 skill..."
-            clearable
-            size="small"
-            style="width: 200px"
-          />
-          <n-button
-            size="small"
-            type="primary"
-            :disabled="!newTagName.trim() || !tagTargetSkill"
-            @click="addTagToSkill"
-          >
-            添加
-          </n-button>
-        </n-space>
-
-        <n-space v-if="Object.keys(allTags).length > 0" vertical>
-          <div v-for="(skills, tag) in allTags" :key="tag" class="tag-row">
-            <n-tag size="small" type="info" round>{{ tag }}</n-tag>
-            <span class="tag-count">({{ skills.length }})</span>
-            <n-space size="small" style="margin-left: 8px">
-              <n-tag
-                v-for="s in skills"
-                :key="s"
-                size="tiny"
-                closable
-                @close="removeTagFromSkill(s, tag)"
-              >
-                {{ s }}
-              </n-tag>
-            </n-space>
-          </div>
-        </n-space>
-        <n-empty v-else description="暂无标签" />
-      </n-card>
-    </n-spin>
-
-    <!-- 分发对话框 -->
-    <n-modal v-model:show="deployVisible" preset="dialog" :title="deployTitle">
-      <n-space vertical>
-        <p>选择要分发的 Agent：</p>
-        <n-select
-          v-model:value="deploySelectedAgents"
-          :options="agentOptions"
-          multiple
-          placeholder="选择 Agent..."
-        />
-      </n-space>
-      <template #action>
-        <n-space>
-          <n-button @click="deployVisible = false">取消</n-button>
-          <n-button
-            type="primary"
-            :loading="deployLoading"
-            :disabled="deploySelectedAgents.length === 0"
-            @click="confirmDeploy"
-          >
-            确认分发
-          </n-button>
-        </n-space>
-      </template>
-    </n-modal>
-
-    <!-- 取消分对话框 -->
-    <n-modal v-model:show="undeployVisible" preset="dialog" :title="undeployTitle">
-      <n-space vertical>
-        <p>选择要取消分发的 Agent：</p>
-        <n-select
-          v-model:value="undeploySelectedAgents"
-          :options="undeployAgentOptions"
-          multiple
-          placeholder="选择 Agent..."
-        />
-      </n-space>
-      <template #action>
-        <n-space>
-          <n-button @click="undeployVisible = false">取消</n-button>
-          <n-button
-            type="warning"
-            :loading="undeployLoading"
-            :disabled="undeploySelectedAgents.length === 0"
-            @click="confirmUndeploy"
-          >
-            确认取消
-          </n-button>
-        </n-space>
-      </template>
-    </n-modal>
-  </div>
-</template>
-
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue';
+import { computed, ref, shallowRef } from 'vue';
 import { useMessage } from 'naive-ui';
-import { useRouter } from 'vue-router';
-import { api, type SkillInfo, type AgentInfo } from '../api';
+import { EyeOutline, FlashOutline, RefreshOutline } from '@vicons/ionicons5';
+import { api } from '../api';
+import type { AgentInfo, SkillInfo } from '../api';
 
 const message = useMessage();
-const router = useRouter();
-
-const loading = ref(false);
 const skills = ref<SkillInfo[]>([]);
 const agents = ref<AgentInfo[]>([]);
-const allTags = ref<Record<string, string[]>>({});
-const tagFilter = ref<string | null>(null);
-const newTagName = ref('');
-const tagTargetSkill = ref<string | null>(null);
+const loading = ref(false);
+const actionOpen = shallowRef(false);
+const selectedSkill = ref<SkillInfo | null>(null);
+const selectedAgents = ref<string[]>([]);
+const mode = shallowRef<'symlink' | 'copy'>('symlink');
+const running = ref(false);
+const action = shallowRef<'deploy' | 'undeploy'>('deploy');
+const query = shallowRef('');
 
-// Deploy dialog
-const deployVisible = ref(false);
-const deployTitle = ref('');
-const deploySelectedAgents = ref<string[]>([]);
-const deployLoading = ref(false);
-const deployTargetSkill = ref('');
-
-// Undeploy dialog
-const undeployVisible = ref(false);
-const undeployTitle = ref('');
-const undeploySelectedAgents = ref<string[]>([]);
-const undeployLoading = ref(false);
-const undeployTargetSkill = ref('');
-
-const installedAgents = computed(() =>
-  agents.value.filter(a => a.installed).map(a => a.name)
-);
-
-const agentOptions = computed(() =>
-  agents.value.filter(a => a.installed).map(a => ({ label: a.displayName, value: a.name }))
-);
-
-const skillOptions = computed(() =>
-  skills.value.map(s => ({ label: s.name, value: s.name }))
-);
-
-const tagOptions = computed(() => {
-  const tags = Object.keys(allTags.value);
-  return tags.map(tag => ({ label: tag, value: tag }));
-});
-
-const undeployAgentOptions = computed(() => {
-  const skill = skills.value.find(s => s.name === undeployTargetSkill.value);
-  if (!skill) return [];
-  return agentOptions.value.filter(opt => skill.agents.includes(opt.value));
+const installedAgents = computed(() => agents.value.filter(agent => agent.installed));
+const agentOptions = computed(() => installedAgents.value.map(agent => ({ label: agent.displayName, value: agent.name })));
+const visibleSkills = computed(() => skills.value.filter(skill => !query.value.trim() || skill.name.toLowerCase().includes(query.value.trim().toLowerCase())));
+const coverage = computed(() => {
+  const total = skills.value.length * installedAgents.value.length;
+  const active = skills.value.reduce((count, skill) => count + skill.agents.filter(agent => installedAgents.value.some(item => item.name === agent)).length, 0);
+  return { active, total };
 });
 
 async function refresh() {
   loading.value = true;
   try {
-    const [skillsRes, agentsRes, tagsRes] = await Promise.all([
-      api.getSkills(),
-      api.getAgents(),
-      api.getTags(),
-    ]);
-    skills.value = skillsRes.skills;
-    agents.value = agentsRes.agents;
-    allTags.value = tagsRes.tags;
-  } catch (e) {
-    message.error(`加载失败: ${(e as Error).message}`);
+    const [skillsResponse, agentsResponse] = await Promise.all([api.getSkills(), api.getAgents()]);
+    skills.value = skillsResponse.skills;
+    agents.value = agentsResponse.agents;
+  } catch (error) {
+    message.error(`加载分发状态失败: ${(error as Error).message}`);
   } finally {
     loading.value = false;
   }
 }
 
-function viewDetail(name: string) {
-  router.push({ name: 'skillDetail', params: { name } });
+function openAction(skill: SkillInfo, nextAction: 'deploy' | 'undeploy') {
+  selectedSkill.value = skill;
+  action.value = nextAction;
+  selectedAgents.value = nextAction === 'undeploy' ? [...skill.agents] : [];
+  actionOpen.value = true;
 }
 
-function openDeployDialog(skill: SkillInfo) {
-  deployTargetSkill.value = skill.name;
-  deployTitle.value = `分发 ${skill.name}`;
-  deploySelectedAgents.value = [];
-  deployVisible.value = true;
-}
-
-function openUndeployDialog(skill: SkillInfo) {
-  if (skill.agents.length === 0) {
-    message.info('该 skill 未分发到任何 Agent');
-    return;
-  }
-  undeployTargetSkill.value = skill.name;
-  undeployTitle.value = `取消分发 ${skill.name}`;
-  undeploySelectedAgents.value = [];
-  undeployVisible.value = true;
-}
-
-async function confirmDeploy() {
-  deployLoading.value = true;
+async function execute(dryRun = false) {
+  if (!selectedSkill.value || selectedAgents.value.length === 0) return;
+  running.value = true;
   try {
-    await api.deploySkill(deployTargetSkill.value, deploySelectedAgents.value);
-    message.success(`已分发到 ${deploySelectedAgents.value.join(', ')}`);
-    deployVisible.value = false;
-    await refresh();
-  } catch (e) {
-    message.error(`分发失败: ${(e as Error).message}`);
+    if (action.value === 'deploy') await api.deploySkill(selectedSkill.value.name, selectedAgents.value, { mode: mode.value, dryRun });
+    else await api.undeploySkill(selectedSkill.value.name, selectedAgents.value, { dryRun });
+    message.success(dryRun ? '预览完成：未写入任何文件' : action.value === 'deploy' ? '分发已完成' : '取消分发已完成');
+    if (!dryRun) {
+      actionOpen.value = false;
+      await refresh();
+    }
+  } catch (error) {
+    message.error(`操作失败: ${(error as Error).message}`);
   } finally {
-    deployLoading.value = false;
+    running.value = false;
   }
 }
 
-async function confirmUndeploy() {
-  undeployLoading.value = true;
-  try {
-    await api.undeploySkill(undeployTargetSkill.value, undeploySelectedAgents.value);
-    message.success(`已取消分发 ${undeploySelectedAgents.value.join(', ')}`);
-    undeployVisible.value = false;
-    await refresh();
-  } catch (e) {
-    message.error(`取消分发失败: ${(e as Error).message}`);
-  } finally {
-    undeployLoading.value = false;
-  }
-}
-
-async function addTagToSkill() {
-  const tag = newTagName.value.trim();
-  const skill = tagTargetSkill.value;
-  if (!tag || !skill) return;
-  try {
-    await api.manageTag(skill, 'add', tag);
-    message.success(`已添加标签 "${tag}" 到 ${skill}`);
-    newTagName.value = '';
-    await refresh();
-  } catch (e) {
-    message.error(`添加标签失败: ${(e as Error).message}`);
-  }
-}
-
-function createTagForSelected() {
-  const tag = newTagName.value.trim();
-  if (!tag) return;
-  
-  // 如果没有选择 skill，尝试选择第一个可用的 skill
-  if (!tagTargetSkill.value && skillOptions.value.length > 0) {
-    tagTargetSkill.value = skillOptions.value[0].value;
-  }
-  
-  // 如果有选择的 skill，直接添加标签
-  if (tagTargetSkill.value) {
-    addTagToSkill();
-  } else {
-    message.warning('请先选择一个 skill');
-  }
-}
-
-async function removeTagFromSkill(skill: string, tag: string) {
-  try {
-    await api.manageTag(skill, 'remove', tag);
-    message.success(`已从 ${skill} 移除标签 "${tag}"`);
-    await refresh();
-  } catch (e) {
-    message.error(`移除标签失败: ${(e as Error).message}`);
-  }
-}
-
-onMounted(() => refresh());
+refresh();
 </script>
 
+<template>
+  <div class="app-page distribution-page">
+    <header class="grid gap-6 lg:grid-cols-[minmax(0_1fr)_auto] lg:items-end">
+      <div class="page-heading"><p class="page-kicker">DISTRIBUTION MATRIX</p><h1 class="page-title">分发控制台</h1><p class="page-summary">逐格查看中央仓库到每个 Agent 的覆盖。所有写入操作均提供预览入口。</p></div>
+      <div class="page-toolbar lg:justify-end"><n-button size="small" :loading="loading" @click="refresh"><template #icon><n-icon :component="RefreshOutline" /></template>刷新矩阵</n-button></div>
+    </header>
+
+    <section class="grid gap-px overflow-clip rounded-[var(--radius-lg)] bg-[var(--color-rule)] shadow-[var(--shadow-sm)] sm:grid-cols-2 xl:grid-cols-4">
+      <div class="min-h-34 bg-[var(--color-graphite)] p-6 text-[var(--color-graphite-ink)]"><p class="m-0 text-[0.6875rem] font-[var(--font-mono)] tracking-[0.1em] uppercase text-[var(--color-graphite-ink)]/55">ACTIVE LINKS</p><strong class="mt-2 block font-[var(--font-display)] text-4xl leading-none tracking-[-0.07em]">{{ coverage.active }}</strong><span class="mt-2 block text-xs text-[var(--color-graphite-ink)]/68">有效分发</span></div>
+      <div class="min-h-34 bg-[var(--color-paper)] p-6"><p class="metric-label">POSSIBLE LINKS</p><strong class="mt-2 block font-[var(--font-display)] text-4xl leading-none tracking-[-0.07em] text-[var(--color-ink)]">{{ coverage.total }}</strong><span class="mt-2 block text-xs text-[var(--color-muted)]">可分发组合</span></div>
+      <div class="min-h-34 bg-[var(--color-paper)] p-6"><p class="metric-label">INSTALLED AGENTS</p><strong class="mt-2 block font-[var(--font-display)] text-4xl leading-none tracking-[-0.07em] text-[var(--color-ink)]">{{ installedAgents.length }}</strong><span class="mt-2 block text-xs text-[var(--color-muted)]">已检测目标</span></div>
+      <div class="flex min-h-34 items-center bg-[var(--color-paper)] p-4"><n-input v-model:value="query" clearable placeholder="筛选 Skill" /></div>
+    </section>
+
+    <n-spin :show="loading">
+      <section class="matrix surface" :style="{ '--agent-count': installedAgents.length }">
+        <div class="matrix-head"><span>Skill</span><span v-for="agent in installedAgents" :key="agent.name">{{ agent.displayName }}</span><span>操作</span></div>
+        <article v-for="skill in visibleSkills" :key="skill.name" class="matrix-row hover:bg-[var(--color-paper-2)]">
+          <div class="skill-cell"><strong>{{ skill.name }}</strong><small>v{{ skill.version }} · {{ skill.managed ? '已纳管' : '待确认' }}</small></div>
+          <div v-for="agent in installedAgents" :key="agent.name" class="coverage-cell"><span :class="skill.agents.includes(agent.name) ? 'coverage-dot coverage-dot--active' : 'coverage-dot'" :title="skill.agents.includes(agent.name) ? '已分发' : '未分发'">{{ skill.agents.includes(agent.name) ? '已覆盖' : '未覆盖' }}</span></div>
+          <div class="row-actions"><n-button size="tiny" quaternary @click="openAction(skill, 'deploy')">分发</n-button><n-button size="tiny" quaternary :disabled="skill.agents.length === 0" @click="openAction(skill, 'undeploy')">移除</n-button></div>
+        </article>
+        <n-empty v-if="visibleSkills.length === 0" class="p-8" description="没有匹配的 Skill" />
+      </section>
+    </n-spin>
+
+    <n-modal v-model:show="actionOpen" preset="card" :title="action === 'deploy' ? '分发 Skill' : '取消分发'" class="max-w-[32rem]">
+      <div class="grid gap-4"><p class="m-0 break-words font-[var(--font-mono)] text-sm text-[var(--color-ink)]">{{ selectedSkill?.name }}</p><n-select v-model:value="selectedAgents" :options="action === 'deploy' ? agentOptions : agentOptions.filter(option => selectedSkill?.agents.includes(option.value))" multiple placeholder="选择 Agent" /><n-radio-group v-if="action === 'deploy'" v-model:value="mode"><n-radio value="symlink">符号链接</n-radio><n-radio value="copy">复制副本</n-radio></n-radio-group><p class="m-0 text-xs leading-5 text-[var(--color-muted)]">{{ action === 'deploy' ? '预览只计算恢复后将执行的动作，不会写入文件。' : '取消分发会删除目标 Agent 中由 SkillSync 管理的副本。' }}</p><div class="inline-actions"><n-button :disabled="selectedAgents.length === 0" :loading="running" @click="execute(true)"><template #icon><n-icon :component="EyeOutline" /></template>预览</n-button><n-button :type="action === 'deploy' ? 'primary' : 'warning'" :disabled="selectedAgents.length === 0" :loading="running" @click="execute(false)"><template #icon><n-icon :component="FlashOutline" /></template>{{ action === 'deploy' ? '确认分发' : '确认移除' }}</n-button></div></div>
+    </n-modal>
+  </div>
+</template>
+
 <style scoped>
-.manage-page {
-  max-width: 1100px;
-  margin: 0 auto;
-}
-
-.skill-name-cell {
-  cursor: pointer;
-  color: var(--accent);
-  font-weight: 500;
-}
-
-.skill-name-cell:hover {
-  text-decoration: underline;
-}
-
-.deploy-cell {
-  text-align: center;
-}
-
-.tag-row {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  padding: 4px 0;
-}
-
-.tag-count {
-  font-size: 12px;
-  color: var(--text-3);
-}
+.matrix { overflow: auto; }
+.matrix-head, .matrix-row { display: grid; grid-template-columns: minmax(15rem, 1.5fr) repeat(var(--agent-count, 1), minmax(7rem, 1fr)) minmax(8rem, auto); min-inline-size: max-content; }
+.matrix-head { position: sticky; inset-block-start: 0; z-index: 1; border-block-end: var(--rule); background: var(--color-paper); color: var(--color-muted); font-family: var(--font-mono); font-size: 0.625rem; letter-spacing: 0.08em; text-transform: uppercase; }
+.matrix-head span, .matrix-row > * { padding: var(--space-md); border-inline-end: var(--rule); }.matrix-row { border-block-end: var(--rule); transition: background var(--dur-fast) var(--ease-out); }.matrix-row:last-of-type { border-block-end: 0; }
+.skill-cell { display: grid; gap: var(--space-2xs); }.skill-cell strong { color: var(--color-ink); font-size: var(--text-sm); }.skill-cell small { color: var(--color-muted); font-family: var(--font-mono); font-size: 0.625rem; }
+.coverage-cell { display: grid; place-items: center; }.coverage-dot { display: inline-flex; align-items: center; gap: var(--space-2xs); color: var(--color-muted); font-family: var(--font-mono); font-size: 0.625rem; white-space: nowrap; }.coverage-dot::before { content: ''; inline-size: 0.5rem; block-size: 0.5rem; border-radius: 50%; background: var(--color-rule-strong); }.coverage-dot--active { color: var(--color-success); }.coverage-dot--active::before { background: var(--color-success); box-shadow: 0 0 0 4px color-mix(in oklch, var(--color-success) 15%, transparent); }.row-actions { display: flex; align-items: center; gap: var(--space-xs); }
+@media (max-width: 39.99rem) { .matrix-head { display: none; }.matrix-row { grid-template-columns: 1fr; min-inline-size: 0; }.matrix-row > * { border-inline-end: 0; border-block-end: var(--rule); }.coverage-cell { display: flex; justify-content: space-between; }.coverage-cell::before { content: 'Agent 覆盖'; color: var(--color-muted); font-family: var(--font-mono); font-size: 0.625rem; }.row-actions { border-block-end: 0; } }
 </style>

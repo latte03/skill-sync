@@ -1,5 +1,5 @@
 <template>
-  <div class="settings-page">
+  <div class="app-page settings-page">
     <div class="page-title-row">
       <h1 class="page-title">设置</h1>
       <n-button size="small" quaternary @click="refreshAll" :loading="loading">
@@ -241,7 +241,7 @@
           size="large"
         />
         <p class="bind-hint">
-          <n-icon size="14" color="#86868b"><InformationCircleOutline /></n-icon>
+          <n-icon size="14" class="info-icon"><InformationCircleOutline /></n-icon>
           <span>
             在 {{ bindPlatform === 'github' ? 'GitHub Settings > Developer settings > Personal access tokens' : 'Gitee 设置 > 私人令牌' }} 中生成
           </span>
@@ -524,14 +524,16 @@ onMounted(() => refreshAll());
 </script>
 
 <style scoped>
-.settings-page { max-width: 720px; margin: 0 auto; }
+.settings-page { max-width: 52rem; margin: 0 auto; }
+.page-title-row { display: flex; align-items: flex-end; justify-content: space-between; gap: var(--space-lg); margin-bottom: var(--space-sm); }
+.page-title { font-family: var(--font-display); font-size: var(--text-2xl); font-weight: 600; letter-spacing: -0.04em; }
 
 .section-card {
-  padding: 16px 18px; border-radius: 10px;
+  padding: var(--space-lg); border-radius: var(--radius-lg);
   background: var(--surface);
-  border: 1px solid var(--border);
-  box-shadow: var(--shadow-sm);
-  margin-bottom: 12px;
+  border: var(--rule);
+  box-shadow: none;
+  margin-bottom: var(--space-md);
 }
 .section-header { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
 .section-icon { color: var(--text-2); }
@@ -655,10 +657,10 @@ onMounted(() => refreshAll());
 }
 .active-info { flex: 1; display: flex; flex-direction: column; gap: 2px; }
 .active-name { font-size: 14px; font-weight: 600; color: var(--text); }
-.active-model { font-size: 12px; color: var(--text-3); font-family: 'SF Mono', Monaco, monospace; }
+.active-model { font-size: 12px; color: var(--text-3); font-family: var(--font-mono); }
 .active-badge {
   font-size: 11px; font-weight: 600;
-  color: color-mix(in srgb, var(--success) 80%, #000);
+  color: var(--color-success);
   background: color-mix(in srgb, var(--success) 14%, transparent);
   padding: 2px 8px; border-radius: 4px;
 }
@@ -685,7 +687,7 @@ onMounted(() => refreshAll());
   font-size: 10px; color: var(--accent);
   background: var(--accent-soft); padding: 1px 6px; border-radius: 4px;
 }
-.provider-url { font-size: 11px; color: var(--text-3); font-family: 'SF Mono', Monaco, monospace; width: 100%; }
+.provider-url { font-size: 11px; color: var(--text-3); font-family: var(--font-mono); width: 100%; }
 
 .provider-status { flex-shrink: 0; }
 .status-key { display: flex; align-items: center; gap: 4px; font-size: 12px; }
@@ -697,7 +699,5 @@ onMounted(() => refreshAll());
 .custom-form { display: flex; flex-wrap: wrap; gap: 8px; }
 .custom-form .n-input { width: 200px; }
 
-[data-theme='dark'] .active-badge {
-  color: color-mix(in srgb, var(--success) 85%, #fff);
-}
+.info-icon { color: var(--color-muted); }
 </style>

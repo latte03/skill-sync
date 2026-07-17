@@ -1,170 +1,25 @@
-<template>
-  <div class="status-page">
-    <n-spin :show="loading">
-      <div v-if="status" class="status-content">
-        <!-- 概览卡片 -->
-        <n-grid :cols="3" :x-gap="16" :y-gap="16">
-          <n-grid-item>
-            <n-card size="small">
-              <n-statistic label="中央仓库" :value="status.skillCount">
-                <template #suffix>skills</template>
-              </n-statistic>
-            </n-card>
-          </n-grid-item>
-          <n-grid-item>
-            <n-card size="small">
-              <n-statistic label="已管理" :value="status.managedCount">
-                <template #suffix>/ {{ status.skillCount }}</template>
-              </n-statistic>
-            </n-card>
-          </n-grid-item>
-          <n-grid-item>
-            <n-card size="small">
-              <n-statistic label="已安装 Agent" :value="status.installedAgents.length" />
-            </n-card>
-          </n-grid-item>
-        </n-grid>
-
-        <n-divider />
-
-        <!-- Agent 分发统计 -->
-        <h3>Agent 分发统计</h3>
-        <n-table :bordered="false" :single-line="false" size="small">
-          <thead>
-            <tr>
-              <th>Agent</th>
-              <th>Managed</th>
-              <th>Unmanaged</th>
-              <th>Total</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="agent in status.agents" :key="agent.agent">
-              <td>{{ agent.agent }}</td>
-              <td>{{ agent.managed }}</td>
-              <td>{{ agent.unmanaged }}</td>
-              <td>{{ agent.total }}</td>
-            </tr>
-          </tbody>
-        </n-table>
-
-        <n-divider />
-
-        <!-- 中央仓库路径 -->
-        <n-card size="small" title="中央仓库">
-          <code class="path-text">{{ status.homeDir }}</code>
-        </n-card>
-
-        <n-divider />
-
-        <!-- 更新检查 -->
-        <h3>更新检查</h3>
-        <n-button @click="checkUpdates" :loading="updateLoading" size="small">
-          检查更新
-        </n-button>
-
-        <div v-if="updateResults.length > 0" class="update-list">
-          <div v-for="item in updateResults" :key="item.name" class="update-item">
-            <span class="update-name">{{ item.name }}</span>
-            <n-tag v-if="item.isLocal" size="tiny" type="default">本地</n-tag>
-            <n-tag v-else-if="item.hasUpdate" size="tiny" type="warning">
-              {{ item.currentVersion }} → {{ item.remoteVersion }}
-            </n-tag>
-            <n-tag v-else size="tiny" type="success">
-              v{{ item.currentVersion }} (最新)
-            </n-tag>
-          </div>
-        </div>
-      </div>
-    </n-spin>
-  </div>
-</template>
-
 <script setup lang="ts">
-import { ref, onMounted } from 'vue';
+import { computed, ref } from 'vue';
 import { useMessage } from 'naive-ui';
-import { api, type StatusInfo, type UpdateCheckResult } from '../api';
+import { RefreshOutline } from '@vicons/ionicons5';
+import { api } from '../api';
+import type { StatusInfo, UpdateCheckResult } from '../api';
 
 const message = useMessage();
-const loading = ref(false);
 const status = ref<StatusInfo | null>(null);
-const updateLoading = ref(false);
-const updateResults = ref<UpdateCheckResult[]>([]);
-
-async function refresh() {
-  loading.value = true;
-  try {
-    status.value = await api.getStatus();
-  } catch (e) {
-    message.error(`加载状态失败: ${(e as Error).message}`);
-  } finally {
-    loading.value = false;
-  }
-}
-
-async function checkUpdates() {
-  updateLoading.value = true;
-  try {
-    const result = await api.checkUpdates();
-    updateResults.value = result.results;
-    const updates = result.results.filter(r => r.hasUpdate);
-    if (updates.length > 0) {
-      message.info(`${updates.length} 个 skill 有更新可用`);
-    } else {
-      message.success('所有 skill 均为最新版本');
-    }
-  } catch (e) {
-    message.error(`检查更新失败: ${(e as Error).message}`);
-  } finally {
-    updateLoading.value = false;
-  }
-}
-
-onMounted(() => {
-  refresh();
-});
+const updates = ref<UpdateCheckResult[]>([]);
+const loading = ref(false);
+const checking = ref(false);
+const availableUpdates = computed(() => updates.value.filter(result => result.hasUpdate));
+async function refresh() { loading.value = true; try { status.value = await api.getStatus(); } catch (error) { message.error(`加载运行状态失败: ${(error as Error).message}`); } finally { loading.value = false; } }
+async function checkUpdates() { checking.value = true; try { updates.value = (await api.checkUpdates()).results; } catch (error) { message.error(`检查更新失败: ${(error as Error).message}`); } finally { checking.value = false; } }
+refresh();
 </script>
 
+<template>
+  <div class="app-page status-page"><header class="status-head"><div class="page-heading"><p class="page-kicker">RUNTIME STATUS</p><h1 class="page-title">运行状态</h1><p class="page-summary">以仓库、Agent 和更新可用性为中心的只读健康概览。</p></div><n-button size="small" :loading="loading" @click="refresh"><template #icon><n-icon :component="RefreshOutline" /></template>刷新</n-button></header><n-spin :show="loading"><template v-if="status"><section class="status-metrics"><article><p class="metric-label">CENTRAL SKILLS</p><strong>{{ status.skillCount }}</strong><span>中央仓库 Skill</span></article><article><p class="metric-label">MANAGED</p><strong>{{ status.managedCount }}</strong><span>纳入追踪管理</span></article><article><p class="metric-label">UNMANAGED</p><strong>{{ status.unmanagedCount }}</strong><span>尚待确认来源</span></article><article><p class="metric-label">AGENTS</p><strong>{{ status.installedAgents.length }}</strong><span>已检测 Agent</span></article></section><section class="agent-status surface"><div><p class="meta-label">AGENT COVERAGE</p><h2>Agent 分发密度</h2></div><div class="agent-list"><article v-for="agent in status.agents" :key="agent.agent"><strong>{{ agent.agent }}</strong><div><span><b>{{ agent.managed }}</b> 已管理</span><span><b>{{ agent.unmanaged }}</b> 未管理</span><span><b>{{ agent.total }}</b> 总计</span></div></article><n-empty v-if="status.agents.length === 0" description="尚未检测到 Agent 状态" /></div></section><section class="update-status"><div><p class="meta-label">UPDATE WATCH</p><h2>更新可用性</h2><p>{{ updates.length ? availableUpdates.length ? `${availableUpdates.length} 个 Skill 有可用更新` : '已检查的 Skill 均为最新版本' : '按需检查已关联远程来源的 Skill。' }}</p></div><n-button size="small" :loading="checking" @click="checkUpdates">检查更新</n-button></section><section v-if="updates.length" class="update-list"><article v-for="result in updates" :key="result.name"><strong>{{ result.name }}</strong><span v-if="result.isLocal">本地来源</span><span v-else-if="result.hasUpdate" class="state-warning">{{ result.currentVersion }} → {{ result.remoteVersion }}</span><span v-else class="state-success">已是最新</span></article></section><p class="home-path"><span class="meta-label">CENTRAL REPOSITORY</span><code>{{ status.homeDir }}</code></p></template></n-spin></div>
+</template>
+
 <style scoped>
-.status-page {
-  max-width: 860px;
-  margin: 0 auto;
-}
-
-.status-page h3 {
-  margin: 0 0 10px;
-  font-size: 15px;
-  font-weight: 600;
-  color: var(--text);
-}
-
-.status-page .n-divider {
-  margin: 20px 0;
-}
-
-.path-text {
-  font-family: 'SF Mono', Monaco, monospace;
-  font-size: 13px;
-  color: var(--accent);
-}
-
-.update-list {
-  margin-top: 12px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.update-item {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 13px;
-}
-
-.update-name {
-  min-width: 200px;
-  font-weight: 500;
-  color: var(--text);
-}
+.status-head { display: flex; align-items: flex-end; justify-content: space-between; gap: var(--space-lg); }.status-metrics { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); border: var(--rule); border-radius: var(--radius-lg); overflow: hidden; }.status-metrics article { display: grid; gap: var(--space-2xs); padding: var(--space-lg); border-inline-end: var(--rule); border-block-end: var(--rule); background: var(--color-paper-2); }.status-metrics strong { color: var(--color-ink); font-family: var(--font-display); font-size: var(--text-2xl); letter-spacing: -0.05em; }.status-metrics span { color: var(--color-muted); font-size: var(--text-xs); }.agent-status, .update-status { display: grid; gap: var(--space-lg); padding: var(--space-lg); }.agent-status h2, .update-status h2 { margin: var(--space-xs) 0 0; color: var(--color-ink); font-size: var(--text-lg); letter-spacing: -0.03em; }.agent-list { display: grid; gap: var(--space-xs); }.agent-list article, .update-list article { display: flex; align-items: center; justify-content: space-between; gap: var(--space-sm); padding: var(--space-md); border: var(--rule); border-radius: var(--radius-sm); background: var(--color-paper-2); }.agent-list strong, .update-list strong { color: var(--color-ink); font-size: var(--text-sm); }.agent-list div { display: flex; flex-wrap: wrap; gap: var(--space-sm); color: var(--color-muted); font-size: var(--text-xs); }.agent-list b { color: var(--color-ink); font-family: var(--font-mono); }.update-status { grid-template-columns: minmax(0, 1fr) auto; align-items: end; background: var(--color-graphite); color: var(--color-graphite-ink); }.update-status h2 { color: inherit; }.update-status p:not(.meta-label) { margin: var(--space-xs) 0 0; color: var(--color-graphite-ink); font-size: var(--text-sm); }.update-status .meta-label { color: var(--color-accent); }.update-list { display: grid; gap: var(--space-xs); }.update-list span { font-family: var(--font-mono); font-size: var(--text-xs); }.home-path { display: grid; gap: var(--space-xs); padding: var(--space-md); margin: 0; border-block-start: var(--rule); }.home-path code { overflow-wrap: anywhere; color: var(--color-muted); font-family: var(--font-mono); font-size: 0.625rem; } @media (min-width: 40rem) { .status-metrics { grid-template-columns: repeat(4, minmax(0, 1fr)); }.status-metrics article { border-block-end: 0; }.status-metrics article:last-child { border-inline-end: 0; } } @media (max-width: 39.99rem) { .status-head { flex-direction: column; align-items: stretch; }.update-status { grid-template-columns: 1fr; align-items: start; } }
 </style>

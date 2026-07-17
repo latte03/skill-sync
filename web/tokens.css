@@ -1,0 +1,118 @@
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Space+Grotesk:wght@400;500;600;700&display=swap');
+
+/* Hallmark · macrostructure: Workbench · tone: technical · anchor hue: electric cobalt
+ * audience: developers and agent managers · use: inspect and safely operate Skill distribution
+ * theme: Cobalt · nav: N3 application side rail · footer: Ft2 inline-rule
+ * pre-emit critique: P5 H5 E5 S5 R4 V4
+ */
+:root {
+  --color-paper: oklch(99% 0.003 260);
+  --color-paper-2: oklch(96.5% 0.009 260);
+  --color-paper-3: oklch(92.5% 0.016 260);
+  --color-ink: oklch(20% 0.028 265);
+  --color-ink-2: oklch(32% 0.025 265);
+  --color-muted: oklch(49% 0.022 265);
+  --color-rule: oklch(88% 0.014 265);
+  --color-rule-strong: oklch(74% 0.02 265);
+  --color-accent: oklch(56% 0.23 270);
+  --color-accent-hover: oklch(50% 0.24 270);
+  --color-accent-ink: oklch(99% 0.002 250);
+  --color-accent-soft: oklch(93% 0.05 270);
+  --color-focus: oklch(48% 0.22 270);
+  --color-success: oklch(54% 0.15 155);
+  --color-success-soft: oklch(94% 0.045 155);
+  --color-warning: oklch(60% 0.15 75);
+  --color-warning-soft: oklch(96% 0.04 75);
+  --color-danger: oklch(54% 0.19 28);
+  --color-danger-soft: oklch(95% 0.035 28);
+  --color-graphite: oklch(19% 0.035 270);
+  --color-graphite-2: oklch(25% 0.04 270);
+  --color-graphite-ink: oklch(95% 0.012 265);
+  --bg: var(--color-paper-2);
+  --surface: var(--color-paper);
+  --surface-2: var(--color-paper-2);
+  --surface-hover: var(--color-paper-3);
+  --border: var(--color-rule);
+  --border-strong: var(--color-rule-strong);
+  --text: var(--color-ink);
+  --text-2: var(--color-ink-2);
+  --text-3: var(--color-muted);
+  --accent: var(--color-accent);
+  --accent-soft: var(--color-accent-soft);
+  --accent-border: var(--color-focus);
+  --success: var(--color-success);
+  --warning: var(--color-warning);
+  --danger: var(--color-danger);
+  --shadow-sm: 0 1px 2px color-mix(in oklch, var(--color-ink) 4%, transparent), 0 10px 24px color-mix(in oklch, var(--color-ink) 4%, transparent);
+  --shadow-md: 0 20px 48px color-mix(in oklch, var(--color-ink) 13%, transparent);
+  --font-display: 'Space Grotesk', ui-sans-serif, sans-serif;
+  --font-body: 'Space Grotesk', ui-sans-serif, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+  --space-2xs: 0.25rem;
+  --space-xs: 0.5rem;
+  --space-sm: 0.75rem;
+  --space-md: 1rem;
+  --space-lg: 1.5rem;
+  --space-xl: 2rem;
+  --space-2xl: 3rem;
+  --space-3xl: 4.5rem;
+  --text-xs: 0.75rem;
+  --text-sm: 0.875rem;
+  --text-base: 1rem;
+  --text-lg: 1.25rem;
+  --text-xl: 1.5rem;
+  --text-2xl: clamp(1.875rem, 3vw, 2.5rem);
+  --text-display: clamp(2.5rem, 5vw, 4.5rem);
+  --radius-sm: 0.5rem;
+  --radius-md: 0.75rem;
+  --radius-lg: 1.125rem;
+  --rule: 1px solid var(--color-rule);
+  --dur-fast: 120ms;
+  --dur-base: 180ms;
+  --dur-slow: 300ms;
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in: cubic-bezier(0.7, 0, 0.84, 0);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+}
+
+[data-theme='dark'] {
+  --color-paper: oklch(17% 0.028 270);
+  --color-paper-2: oklch(21% 0.032 270);
+  --color-paper-3: oklch(27% 0.035 270);
+  --color-ink: oklch(95% 0.012 265);
+  --color-ink-2: oklch(83% 0.017 265);
+  --color-muted: oklch(68% 0.02 265);
+  --color-rule: oklch(32% 0.025 270);
+  --color-rule-strong: oklch(43% 0.03 270);
+  --color-accent: oklch(72% 0.18 270);
+  --color-accent-hover: oklch(78% 0.16 270);
+  --color-accent-ink: oklch(18% 0.028 270);
+  --color-accent-soft: oklch(30% 0.075 270);
+  --color-focus: oklch(82% 0.14 270);
+  --color-success: oklch(76% 0.14 155);
+  --color-success-soft: oklch(27% 0.06 155);
+  --color-warning: oklch(78% 0.13 75);
+  --color-warning-soft: oklch(29% 0.05 75);
+  --color-danger: oklch(72% 0.16 28);
+  --color-danger-soft: oklch(28% 0.06 28);
+  --color-graphite: oklch(12% 0.03 270);
+  --color-graphite-2: oklch(18% 0.035 270);
+  --color-graphite-ink: oklch(95% 0.012 265);
+  --bg: var(--color-paper-2);
+  --surface: var(--color-paper);
+  --surface-2: var(--color-paper-2);
+  --surface-hover: var(--color-paper-3);
+  --border: var(--color-rule);
+  --border-strong: var(--color-rule-strong);
+  --text: var(--color-ink);
+  --text-2: var(--color-ink-2);
+  --text-3: var(--color-muted);
+  --accent: var(--color-accent);
+  --accent-soft: var(--color-accent-soft);
+  --accent-border: var(--color-focus);
+  --success: var(--color-success);
+  --warning: var(--color-warning);
+  --danger: var(--color-danger);
+  --shadow-sm: 0 1px 2px color-mix(in oklch, var(--color-graphite) 35%, transparent);
+  --shadow-md: 0 8px 24px color-mix(in oklch, var(--color-graphite) 40%, transparent);
+}

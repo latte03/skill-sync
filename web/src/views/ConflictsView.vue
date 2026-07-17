@@ -1,199 +1,25 @@
-<template>
-  <div class="conflicts-page">
-    <div class="page-title-row">
-      <h1 class="page-title">冲突检测</h1>
-      <n-space>
-        <n-tag v-if="conflicts.length > 0" type="error" size="small" round>
-          {{ conflicts.length }} 个冲突
-        </n-tag>
-        <n-tag v-else-if="!loading && hasChecked" type="success" size="small" round>
-          无冲突
-        </n-tag>
-        <n-button size="small" @click="refresh" :loading="loading">检测冲突</n-button>
-      </n-space>
-    </div>
-
-    <n-spin :show="loading">
-      <n-empty
-        v-if="!loading && conflicts.length === 0 && hasChecked"
-        description="未检测到冲突，所有分发状态正常"
-        class="empty-state"
-      />
-
-      <n-empty
-        v-if="!loading && !hasChecked"
-        description="点击「检测冲突」开始扫描"
-        class="empty-state"
-      />
-
-      <div v-if="conflicts.length > 0" class="conflict-list">
-        <n-card
-          v-for="(conflict, idx) in conflicts"
-          :key="idx"
-          size="small"
-          class="conflict-card"
-          :bordered="true"
-        >
-          <template #header>
-            <div class="conflict-header">
-              <n-space size="small" align="center">
-                <n-tag
-                  :type="conflictTypeColor(conflict.type)"
-                  size="small"
-                  round
-                >
-                  {{ conflictTypeLabel(conflict.type) }}
-                </n-tag>
-                <span class="conflict-skill">{{ conflict.skillName }}</span>
-                <span class="conflict-agent">→ {{ conflict.agent }}</span>
-              </n-space>
-            </div>
-          </template>
-
-          <div class="conflict-body">
-            <p class="conflict-detail">{{ conflict.detail }}</p>
-            <code class="conflict-path">{{ conflict.destPath }}</code>
-          </div>
-
-          <template #action>
-            <n-space>
-              <n-button
-                size="tiny"
-                type="primary"
-                @click="resolveForceDeploy(conflict)"
-              >
-                强制重新分发
-              </n-button>
-              <n-button
-                size="tiny"
-                type="warning"
-                @click="resolveUndeploy(conflict)"
-              >
-                移除冲突文件
-              </n-button>
-            </n-space>
-          </template>
-        </n-card>
-      </div>
-    </n-spin>
-  </div>
-</template>
-
 <script setup lang="ts">
-import { ref } from 'vue';
+import { computed, ref } from 'vue';
 import { useMessage } from 'naive-ui';
-import { api, type ConflictInfo } from '../api';
+import { RefreshOutline, WarningOutline } from '@vicons/ionicons5';
+import { api } from '../api';
+import type { ConflictInfo } from '../api';
 
 const message = useMessage();
-const loading = ref(false);
-const hasChecked = ref(false);
 const conflicts = ref<ConflictInfo[]>([]);
-
-function conflictTypeLabel(type: ConflictInfo['type']): string {
-  switch (type) {
-    case 'managed-mismatch': return '管理不一致';
-    case 'unmanaged': return '未管理副本';
-    case 'broken-symlink': return '失效链接';
-    default: return type;
-  }
-}
-
-function conflictTypeColor(type: ConflictInfo['type']): 'error' | 'warning' | 'info' {
-  switch (type) {
-    case 'managed-mismatch': return 'error';
-    case 'unmanaged': return 'warning';
-    case 'broken-symlink': return 'info';
-    default: return 'info';
-  }
-}
-
-async function refresh() {
-  loading.value = true;
-  try {
-    const res = await api.getConflicts();
-    conflicts.value = res.conflicts;
-    hasChecked.value = true;
-    if (res.conflicts.length === 0) {
-      message.success('未检测到冲突');
-    } else {
-      message.warning(`检测到 ${res.conflicts.length} 个冲突`);
-    }
-  } catch (e) {
-    message.error(`检测失败: ${(e as Error).message}`);
-  } finally {
-    loading.value = false;
-  }
-}
-
-async function resolveForceDeploy(conflict: ConflictInfo) {
-  try {
-    await api.deploySkill(conflict.skillName, [conflict.agent]);
-    message.success(`已强制重新分发 ${conflict.skillName} → ${conflict.agent}`);
-    await refresh();
-  } catch (e) {
-    message.error(`解决失败: ${(e as Error).message}`);
-  }
-}
-
-async function resolveUndeploy(conflict: ConflictInfo) {
-  try {
-    await api.undeploySkill(conflict.skillName, [conflict.agent]);
-    message.success(`已移除 ${conflict.agent} 中的冲突文件`);
-    await refresh();
-  } catch (e) {
-    message.error(`解决失败: ${(e as Error).message}`);
-  }
-}
+const loading = ref(false);
+const checked = ref(false);
+const summary = computed(() => conflicts.value.length === 0 && checked.value ? '未发现冲突' : `${conflicts.value.length} 项待处理`);
+function label(type: ConflictInfo['type']) { return { 'managed-mismatch': '管理状态不一致', unmanaged: '未管理副本', 'broken-symlink': '失效链接' }[type]; }
+async function refresh() { loading.value = true; try { conflicts.value = (await api.getConflicts()).conflicts; checked.value = true; } catch (error) { message.error(`检测失败: ${(error as Error).message}`); } finally { loading.value = false; } }
+async function redeploy(conflict: ConflictInfo) { try { await api.deploySkill(conflict.skillName, [conflict.agent], { force: true }); message.success('已强制重新分发'); await refresh(); } catch (error) { message.error(`修复失败: ${(error as Error).message}`); } }
+async function remove(conflict: ConflictInfo) { try { await api.undeploySkill(conflict.skillName, [conflict.agent]); message.success('已移除该 Agent 中的副本'); await refresh(); } catch (error) { message.error(`移除失败: ${(error as Error).message}`); } }
 </script>
 
+<template>
+  <div class="app-page conflicts-page"><header class="conflict-head"><div class="page-heading"><p class="page-kicker">DISTRIBUTION INTEGRITY</p><h1 class="page-title">一致性检查</h1><p class="page-summary">扫描中央仓库与 Agent 目录，找出需要人工确认或可直接收敛的分发差异。</p></div><n-button type="primary" size="small" :loading="loading" @click="refresh"><template #icon><n-icon :component="RefreshOutline" /></template>开始检查</n-button></header><section class="integrity-banner" :class="{ 'integrity-banner--clean': checked && conflicts.length === 0 }"><n-icon :component="WarningOutline" size="24" /><div><strong>{{ summary }}</strong><p>{{ checked ? conflicts.length ? '每个操作只会作用于对应 Skill 与 Agent。' : '中央仓库与已检测 Agent 的分发状态一致。' : '尚未开始扫描。' }}</p></div></section><n-spin :show="loading"><section v-if="conflicts.length" class="conflict-list"><article v-for="conflict in conflicts" :key="`${conflict.skillName}:${conflict.agent}:${conflict.destPath}`" class="conflict-card"><div><p class="meta-label">{{ label(conflict.type) }}</p><h2>{{ conflict.skillName }} <span>→ {{ conflict.agent }}</span></h2><p>{{ conflict.detail }}</p><code>{{ conflict.destPath }}</code></div><div class="inline-actions"><n-button size="small" @click="redeploy(conflict)">强制重新分发</n-button><n-button size="small" type="warning" @click="remove(conflict)">移除副本</n-button></div></article></section><n-empty v-else-if="checked" description="没有需要处理的分发冲突" /></n-spin></div>
+</template>
+
 <style scoped>
-.conflicts-page {
-  max-width: 900px;
-  margin: 0 auto;
-}
-
-.conflict-list {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
-.conflict-header {
-  display: flex;
-  align-items: center;
-}
-
-.conflict-skill {
-  font-weight: 600;
-  font-size: 14px;
-  color: var(--text);
-}
-
-.conflict-agent {
-  font-size: 13px;
-  color: var(--text-3);
-}
-
-.conflict-body {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.conflict-detail {
-  margin: 0;
-  font-size: 13px;
-  color: var(--text-2);
-}
-
-.conflict-path {
-  font-family: 'SF Mono', Monaco, monospace;
-  font-size: 12px;
-  color: var(--accent);
-  word-break: break-all;
-}
-
-.empty-state {
-  padding: 60px 0;
-}
+.conflict-head { display: flex; align-items: flex-end; justify-content: space-between; gap: var(--space-lg); }.integrity-banner { display: flex; align-items: flex-start; gap: var(--space-md); padding: var(--space-lg); border: 1px solid var(--color-warning); border-radius: var(--radius-lg); background: var(--color-warning-soft); color: var(--color-warning); }.integrity-banner--clean { border-color: var(--color-success); background: var(--color-success-soft); color: var(--color-success); }.integrity-banner strong { color: var(--color-ink); }.integrity-banner p { margin: var(--space-2xs) 0 0; color: var(--color-muted); font-size: var(--text-sm); }.conflict-list { display: grid; gap: var(--space-md); }.conflict-card { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-lg); padding: var(--space-lg); border: var(--rule); border-radius: var(--radius-lg); background: var(--color-paper); }.conflict-card h2 { margin: var(--space-xs) 0; color: var(--color-ink); font-size: var(--text-lg); letter-spacing: -0.03em; }.conflict-card h2 span { color: var(--color-muted); font-size: var(--text-sm); font-weight: 400; }.conflict-card p:not(.meta-label) { margin: 0; color: var(--color-muted); font-size: var(--text-sm); }.conflict-card code { display: block; margin-block-start: var(--space-sm); color: var(--color-accent); font-family: var(--font-mono); font-size: 0.625rem; overflow-wrap: anywhere; } @media (max-width: 39.99rem) { .conflict-head, .conflict-card { flex-direction: column; align-items: stretch; } }
 </style>

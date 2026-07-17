@@ -1,0 +1,19 @@
+{
+  "scannedAt": "2026-07-17",
+  "framework": "Vue 3 + Vite + Naive UI",
+  "fontStack": "Space Grotesk and JetBrains Mono",
+  "palette": "tokenized cobalt, graphite, and cool paper surfaces",
+  "motion": "short route and interaction transitions with reduced-motion support",
+  "spacing": "token scale with UnoCSS Wind utility composition",
+  "preserved": [
+    "Vue Router route tree",
+    "Naive UI component behavior",
+    "distribution-first information architecture"
+  ],
+  "introduced": [
+    "responsive graphite application rail",
+    "Cobalt token refresh",
+    "UnoCSS utility-first page composition",
+    "high-contrast distribution and synchronization workbenches"
+  ]
+}
