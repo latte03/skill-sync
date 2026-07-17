@@ -34,10 +34,12 @@ import { readConfig } from '../config.js';
 import { readLock } from '../lib/lock.js';
 import { getHomeDir, skillMdPath, skillRepoPath } from '../lib/paths.js';
 import { recoverManagedState } from '../core/state-recovery.js';
-import { apiError } from './api-error.js';
+import type { RemoveScope, UserDeployMode } from '../lib/types.js';
+import { ApiValidationError, apiError } from './api-error.js';
 import { settingsRoutes } from './routes/settings.js';
 import { updateRoutes } from './routes/updates.js';
 import { integrationRoutes } from './routes/integrations.js';
+import { dependencyRoutes } from './routes/dependencies.js';
 import { registerStaticFallback } from './static.js';
 
 const app = new Hono();
@@ -66,6 +68,7 @@ app.use('/api/*', async (c, next) => {
 app.route('/api', settingsRoutes);
 app.route('/api', updateRoutes);
 app.route('/api', integrationRoutes);
+app.route('/api', dependencyRoutes);
 
 // ─── 健康检查 ─────────────────────────────────────
 app.get('/api/health', (c) => {
@@ -255,7 +258,11 @@ app.post('/api/skills/install', async (c) => {
       agents?: string[];
       mode?: 'symlink' | 'copy';
       noDeploy?: boolean;
+      installDeps?: boolean;
     }>();
+    if (typeof body.source !== 'string' || !body.source.trim()) throw new ApiValidationError('source 必须是非空字符串');
+    if (body.mode !== undefined && body.mode !== 'symlink' && body.mode !== 'copy') throw new ApiValidationError('mode 必须是 symlink 或 copy');
+    if (body.installDeps !== undefined && typeof body.installDeps !== 'boolean') throw new ApiValidationError('installDeps 必须是布尔值');
 
     // 判断来源类型
     const isLocal = body.source.startsWith('/') || body.source.startsWith('./') || body.source.startsWith('../');
@@ -265,7 +272,7 @@ app.post('/api/skills/install', async (c) => {
       result = installLocalSkill(ctx, body.source, {
         skill: body.skill,
         noDeploy: body.noDeploy ?? false,
-        ignoreDeps: true,
+        installDeps: body.installDeps,
         deployType: body.mode,
         agents: body.agents,
         yes: true,
@@ -274,7 +281,7 @@ app.post('/api/skills/install', async (c) => {
       result = await installGitHubSkill(ctx, body.source, {
         skill: body.skill,
         noDeploy: body.noDeploy ?? false,
-        ignoreDeps: true,
+        installDeps: body.installDeps,
         deployType: body.mode,
         agents: body.agents,
         yes: true,
@@ -283,53 +290,45 @@ app.post('/api/skills/install', async (c) => {
 
     return c.json({ success: true, result });
   } catch (e) {
-    return c.json({ error: (e as Error).message }, 500);
+    return apiError(c, e);
   }
 });
 
 // ─── 分发 Skill ───────────────────────────────────
-app.post('/api/skill/deploy', (c) => {
+app.post('/api/skill/deploy', async (c) => {
   try {
-    const ctx = createContext();
     const name = c.req.query('name') ?? '';
     const agentsParam = c.req.query('agents');
-    const agents = agentsParam ? agentsParam.split(',').map(s => s.trim()).filter(Boolean) : [];
+    const body = await c.req.json<{ agents?: unknown; mode?: unknown; force?: unknown; dryRun?: unknown }>()
+      .catch((): { agents?: unknown; mode?: unknown; force?: unknown; dryRun?: unknown } => ({}));
+    const agents = parseAgentList(body.agents, agentsParam);
+    const mode = parseDeployMode(body.mode);
+    if (!name) throw new ApiValidationError('缺少 skill name');
+    if (agents.length === 0) throw new ApiValidationError('请指定至少一个 Agent');
+    if (body.force !== undefined && typeof body.force !== 'boolean') throw new ApiValidationError('force 必须是布尔值');
+    if (body.dryRun !== undefined && typeof body.dryRun !== 'boolean') throw new ApiValidationError('dryRun 必须是布尔值');
 
-    if (!name) {
-      return c.json({ error: '缺少 skill name' }, 400);
-    }
-
-    if (agents.length === 0) {
-      return c.json({ error: '请指定至少一个 Agent' }, 400);
-    }
-
-    deploySkills(ctx, name, agents, { mode: 'symlink' });
-
-    return c.json({ success: true });
+    deploySkills(createContext({ dryRun: body.dryRun === true }), name, agents, { mode, force: body.force === true });
+    return c.json({ success: true, dryRun: body.dryRun === true });
   } catch (e) {
     return apiError(c, e);
   }
 });
 
 // ─── 取消分发 ─────────────────────────────────────
-app.post('/api/skill/undeploy', (c) => {
+app.post('/api/skill/undeploy', async (c) => {
   try {
-    const ctx = createContext();
     const name = c.req.query('name') ?? '';
     const agentsParam = c.req.query('agents');
-    const agents = agentsParam ? agentsParam.split(',').map(s => s.trim()).filter(Boolean) : [];
+    const body = await c.req.json<{ agents?: unknown; dryRun?: unknown }>()
+      .catch((): { agents?: unknown; dryRun?: unknown } => ({}));
+    const agents = parseAgentList(body.agents, agentsParam);
+    if (!name) throw new ApiValidationError('缺少 skill name');
+    if (agents.length === 0) throw new ApiValidationError('请指定至少一个 Agent');
+    if (body.dryRun !== undefined && typeof body.dryRun !== 'boolean') throw new ApiValidationError('dryRun 必须是布尔值');
 
-    if (!name) {
-      return c.json({ error: '缺少 skill name' }, 400);
-    }
-
-    if (agents.length === 0) {
-      return c.json({ error: '请指定至少一个 Agent' }, 400);
-    }
-
-    undeploySkills(ctx, name, agents);
-
-    return c.json({ success: true });
+    undeploySkills(createContext({ dryRun: body.dryRun === true }), name, agents);
+    return c.json({ success: true, dryRun: body.dryRun === true });
   } catch (e) {
     return apiError(c, e);
   }
@@ -341,9 +340,10 @@ app.post('/api/skill/tags', async (c) => {
     const name = c.req.query('name') ?? '';
     const body = await c.req.json<{ action: 'add' | 'remove'; tag: string }>();
 
-    if (!name) {
-      return c.json({ error: '缺少 skill name' }, 400);
-    }
+    if (!name) throw new ApiValidationError('缺少 skill name');
+
+    if (body.action !== 'add' && body.action !== 'remove') throw new ApiValidationError('action 必须是 add 或 remove');
+    if (!body.tag?.trim()) throw new ApiValidationError('tag 必须是非空字符串');
 
     if (body.action === 'add') {
       addTag(name, body.tag);
@@ -354,7 +354,7 @@ app.post('/api/skill/tags', async (c) => {
     const tags = getSkillTags(name);
     return c.json({ success: true, tags });
   } catch (e) {
-    return c.json({ error: (e as Error).message }, 500);
+    return apiError(c, e);
   }
 });
 
@@ -443,18 +443,35 @@ app.delete('/api/skill', (c) => {
     const ctx = createContext();
     const name = c.req.query('name') ?? '';
     const scope = c.req.query('scope') ?? 'all';
+    const agent = c.req.query('agent');
 
-    if (!name) {
-      return c.json({ error: '缺少 skill name' }, 400);
-    }
+    if (!name) throw new ApiValidationError('缺少 skill name');
+    if (scope !== 'all' && scope !== 'central' && scope !== 'agent') throw new ApiValidationError('scope 必须是 all、central 或 agent');
+    if (scope === 'agent' && !agent?.trim()) throw new ApiValidationError('scope=agent 时必须提供 agent');
 
-    removeSkill(ctx, name, scope as 'central' | 'all');
+    removeSkill(ctx, name, scope as RemoveScope, agent?.trim());
 
     return c.json({ success: true });
   } catch (e) {
     return apiError(c, e);
   }
 });
+
+function parseAgentList(value: unknown, queryValue: string | undefined): string[] {
+  if (value !== undefined) {
+    if (!Array.isArray(value) || value.some(agent => typeof agent !== 'string')) {
+      throw new ApiValidationError('agents 必须是字符串数组');
+    }
+    return value.map(agent => agent.trim()).filter(Boolean);
+  }
+  return queryValue ? queryValue.split(',').map(agent => agent.trim()).filter(Boolean) : [];
+}
+
+function parseDeployMode(value: unknown): UserDeployMode | undefined {
+  if (value === undefined) return undefined;
+  if (value === 'symlink' || value === 'copy') return value;
+  throw new ApiValidationError('mode 必须是 symlink 或 copy');
+}
 
 registerStaticFallback(app);
 

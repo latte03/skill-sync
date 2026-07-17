@@ -205,6 +205,24 @@ describe('HTTP API', () => {
     expect(await invalidAssociation.json()).toMatchObject({ code: 'INVALID_REQUEST' });
   });
 
+  it('validates dependency review and CLI-equivalent operation parameters', async () => {
+    const dependencyName = await app.request('/api/skill/dependencies');
+    expect(dependencyName.status).toBe(400);
+
+    const dependencyManagers = await app.request('/api/skill/dependencies/install?name=local%2Ftest', {
+      method: 'POST', body: JSON.stringify({ managers: ['bun'] }), headers: { 'Content-Type': 'application/json' },
+    });
+    expect(dependencyManagers.status).toBe(400);
+
+    const deployMode = await app.request('/api/skill/deploy?name=local%2Ftest&agents=claude-code', {
+      method: 'POST', body: JSON.stringify({ mode: 'junction' }), headers: { 'Content-Type': 'application/json' },
+    });
+    expect(deployMode.status).toBe(400);
+
+    const removeAgent = await app.request('/api/skill?name=local%2Ftest&scope=agent', { method: 'DELETE' });
+    expect(removeAgent.status).toBe(400);
+  });
+
   it('POST /api/skill/deploy uses an opaque name query parameter', async () => {
     const res = await app.request('/api/skill/deploy?name=anthropics%2Fskills%2Fskills%2Fpdf&agents=claude-code', {
       method: 'POST',
