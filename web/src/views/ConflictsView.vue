@@ -1,13 +1,15 @@
 <script setup lang="ts">
 import { computed, ref } from "vue";
-import { useMessage } from "naive-ui";
 import { RefreshOutline, WarningOutline } from "@vicons/ionicons5";
+import { useToast } from "../composables/useToast";
 import { api } from "../api";
 import type { ConflictInfo } from "../api";
 import PageHeader from "../components/ui/PageHeader.vue";
 import UiButton from "../components/ui/UiButton.vue";
+import UiSpin from "../components/ui/UiSpin.vue";
+import UiIcon from '../components/ui/UiIcon.vue';
 
-const message = useMessage();
+const message = useToast();
 const conflicts = ref<ConflictInfo[]>([]);
 const loading = ref(false);
 const checked = ref(false);
@@ -65,7 +67,7 @@ async function remove(conflict: ConflictInfo) {
     >
       <template #actions>
         <UiButton variant="primary" size="sm" :loading="loading" @click="refresh">
-          <template #icon><n-icon :component="RefreshOutline" /></template>
+          <template #icon><UiIcon :component="RefreshOutline" /></template>
           {{ checked ? "重新检查" : "开始检查" }}
         </UiButton>
       </template>
@@ -78,7 +80,7 @@ async function remove(conflict: ConflictInfo) {
       }"
     >
       <span class="integrity-icon"
-        ><n-icon :component="WarningOutline" size="16"
+        ><UiIcon :component="WarningOutline" size="16"
       /></span>
       <div>
         <strong>{{ summary }}</strong>
@@ -94,7 +96,7 @@ async function remove(conflict: ConflictInfo) {
       </div>
       <small>{{ checked ? "刚刚完成检查" : "准备开始检查" }}</small>
     </section>
-    <n-spin :show="loading"
+    <UiSpin :show="loading"
       ><section v-if="conflicts.length" class="conflict-list">
         <article
           v-for="conflict in conflicts"
@@ -111,17 +113,14 @@ async function remove(conflict: ConflictInfo) {
             <code>{{ conflict.destPath }}</code>
           </div>
           <div class="inline-actions">
-            <n-button size="small" @click="redeploy(conflict)"
-              >重新分发</n-button
-            ><n-button size="small" type="warning" @click="remove(conflict)"
-              >移除副本</n-button
-            >
+            <UiButton size="sm" @click="redeploy(conflict)">重新分发</UiButton
+            ><UiButton size="sm" variant="danger" @click="remove(conflict)">移除副本</UiButton>
           </div>
         </article>
       </section>
       <div v-else-if="checked" class="integrity-empty">
         <b>没有需要处理的差异</b><span>所有已检测分发目标状态一致。</span>
-      </div></n-spin
+      </div></UiSpin
     >
   </div>
 </template>
@@ -140,7 +139,7 @@ async function remove(conflict: ConflictInfo) {
   gap: 0.7rem;
   border: 1px solid
     color-mix(in srgb, var(--color-warning) 34%, var(--color-rule));
-  border-radius: 0.72rem;
+  border-radius: var(--radius-lg);
   background: var(--color-paper);
   padding: 0.72rem 0.8rem;
   box-shadow: var(--shadow-xs);
@@ -156,7 +155,7 @@ async function remove(conflict: ConflictInfo) {
   width: 1.9rem;
   height: 1.9rem;
   place-items: center;
-  border-radius: 0.56rem;
+  border-radius: var(--radius-sm);
   background: var(--color-warning-soft);
   color: var(--color-warning);
 }
@@ -194,7 +193,7 @@ async function remove(conflict: ConflictInfo) {
   align-items: center;
   gap: 0.7rem;
   border: 1px solid var(--color-rule);
-  border-radius: 0.68rem;
+  border-radius: var(--radius-md);
   background: var(--color-paper);
   padding: 0.7rem;
   box-shadow: var(--shadow-xs);

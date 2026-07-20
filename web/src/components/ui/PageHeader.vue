@@ -1,8 +1,8 @@
 <script setup lang="ts">
 defineProps<{
-  eyebrow: string;
+  eyebrow?: string;
   title: string;
-  summary: string;
+  summary?: string;
   count?: number | string;
 }>();
 </script>
@@ -10,16 +10,17 @@ defineProps<{
 <template>
   <header class="page-header">
     <div class="page-heading">
-      <p class="page-kicker">{{ eyebrow }}</p>
-      <h1 class="page-title">{{ title }} <span v-if="count !== undefined" class="page-count">{{ count }}</span></h1>
-      <p class="page-summary">{{ summary }}</p>
+      <h1 class="page-title">{{ title }}<span v-if="count !== undefined" class="page-count">{{ count }}</span></h1>
+      <p v-if="summary" class="page-summary">{{ summary }}</p>
     </div>
     <div v-if="$slots.actions" class="page-header__actions"><slot name="actions" /></div>
   </header>
 </template>
 
 <style scoped>
-.page-header { display:flex;min-height:5.35rem;align-items:flex-end;justify-content:space-between;gap:2rem; }
-.page-header__actions { display:flex;flex:none;align-items:center;gap:.65rem; }
-.page-count { display:inline-grid;min-width:1.75rem;height:1.75rem;margin-left:.5rem;place-items:center;border:1px solid var(--color-rule-strong);border-radius:.55rem;background:var(--color-paper-2);padding:0 .4rem;color:var(--color-muted);font-family:var(--font-mono);font-size:.75rem;font-weight:600;letter-spacing:0;vertical-align:.25rem; }
+.page-header { display:flex;align-items:flex-start;justify-content:space-between;gap:1.5rem; }
+.page-header__actions { display:flex;flex:none;align-items:center;gap:.5rem; }
+.page-title { margin:0;color:var(--color-ink);font-size:var(--text-2xl);font-weight:700;letter-spacing:-.03em;line-height:1.2; }
+.page-count { margin-left:.5rem;color:var(--color-faint);font-size:var(--text-sm);font-weight:500;font-family:var(--font-mono);letter-spacing:0; }
+.page-summary { margin:.25rem 0 0;color:var(--color-muted);font-size:var(--text-sm); }
 </style>

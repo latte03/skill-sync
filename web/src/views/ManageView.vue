@@ -1,28 +1,35 @@
 <script setup lang="ts">
 import { computed, ref, shallowRef } from "vue";
-import { useMessage } from "naive-ui";
 import {
   GridOutline,
   ListOutline,
   RefreshOutline,
   SearchOutline,
 } from "@vicons/ionicons5";
+import { useToast } from "../composables/useToast";
 import { api } from "../api";
 import type { AgentInfo, SkillInfo } from "../api";
 import AgentStack from "../components/workspace/agent-stack.vue";
 import DistributionPicker from "../components/workspace/distribution-picker.vue";
 import PageHeader from "../components/ui/PageHeader.vue";
 import UiButton from "../components/ui/UiButton.vue";
+import UiSegmented from "../components/ui/UiSegmented.vue";
+import UiSpin from "../components/ui/UiSpin.vue";
+import UiIcon from '../components/ui/UiIcon.vue';
 
-type Perspective = "skill" | "agent" | "matrix";
-type DistributionInput = { agents: string[]; mode: "symlink" | "copy" };
-const message = useMessage();
+type DistributionInput = { add: string[]; remove: string[]; mode: "symlink" | "copy" };
+const message = useToast();
 const skills = ref<SkillInfo[]>([]);
 const agents = ref<AgentInfo[]>([]);
 const loading = ref(false);
 const runningSkill = shallowRef<string | null>(null);
 const query = shallowRef("");
-const perspective = shallowRef<Perspective>("skill");
+const perspective = ref("skill");
+const perspectiveOptions = [
+  { value: "skill", label: "按 Skill", icon: GridOutline },
+  { value: "agent", label: "按 Agent", icon: ListOutline },
+  { value: "matrix", label: "关系图" },
+];
 const installedAgents = computed(() =>
   agents.value.filter((agent) => agent.installed),
 );
@@ -67,16 +74,16 @@ async function refresh() {
 async function distribute(
   skill: SkillInfo,
   input: DistributionInput,
-  dryRun = false,
 ) {
   runningSkill.value = skill.name;
   try {
-    await api.deploySkill(skill.name, input.agents, {
-      mode: input.mode,
-      dryRun,
-    });
-    message.success(dryRun ? "预览完成，没有写入文件" : "分发目标已添加");
-    if (!dryRun) await refresh();
+    if (input.add.length) await api.deploySkill(skill.name, input.add, { mode: input.mode });
+    if (input.remove.length) await api.undeploySkill(skill.name, input.remove);
+    const parts: string[] = [];
+    if (input.add.length) parts.push(`新增 ${input.add.length}`);
+    if (input.remove.length) parts.push(`移除 ${input.remove.length}`);
+    message.success(`分发已更新（${parts.join("，")}）`);
+    await refresh();
   } catch (error) {
     message.error(`分发失败: ${(error as Error).message}`);
   } finally {
@@ -95,35 +102,15 @@ refresh();
       ><template #actions
         ><UiButton size="sm" :loading="loading" @click="refresh"
           ><template #icon
-            ><n-icon :component="RefreshOutline" size="16" /></template
+            ><UiIcon :component="RefreshOutline" size="16" /></template
           >刷新</UiButton
         ></template
       ></PageHeader
     >
     <section class="distribution-toolbar">
-      <div class="perspective-switch">
-        <button
-          :class="{ active: perspective === 'skill' }"
-          type="button"
-          @click="perspective = 'skill'"
-        >
-          <n-icon :component="GridOutline" size="13" />按 Skill</button
-        ><button
-          :class="{ active: perspective === 'agent' }"
-          type="button"
-          @click="perspective = 'agent'"
-        >
-          <n-icon :component="ListOutline" size="13" />按 Agent</button
-        ><button
-          :class="{ active: perspective === 'matrix' }"
-          type="button"
-          @click="perspective = 'matrix'"
-        >
-          关系图
-        </button>
-      </div>
+      <UiSegmented v-model="perspective" :options="perspectiveOptions" size="lg" />
       <label
-        ><n-icon :component="SearchOutline" size="13" /><input
+        ><UiIcon :component="SearchOutline" size="13" /><input
           v-model="query"
           placeholder="筛选 Skill"
       /></label>
@@ -145,7 +132,7 @@ refresh();
         ><small>中央仓库项目</small>
       </article>
     </section>
-    <n-spin :show="loading">
+    <UiSpin :show="loading">
       <section v-if="perspective === 'skill'" class="skill-distribution-list">
         <article v-for="skill in visibleSkills" :key="skill.name">
           <div class="skill-symbol">
@@ -173,7 +160,6 @@ refresh();
             :skill="skill"
             :agents="agents"
             :busy="runningSkill === skill.name"
-            @preview="distribute(skill, $event, true)"
             @distribute="distribute(skill, $event)"
             ><button class="add-target" type="button">
               ＋ <span>添加目标</span>
@@ -256,7 +242,7 @@ refresh();
           </div>
         </div>
       </section>
-    </n-spin>
+    </UiSpin>
   </div>
 </template>
 
@@ -299,7 +285,7 @@ refresh();
   align-items: center;
   gap: 0.35rem;
   border: 1px solid var(--color-rule);
-  border-radius: 0.5rem;
+  border-radius: var(--radius-sm);
   background: var(--color-paper);
   padding: 0 0.62rem;
   color: var(--color-ink-2);
@@ -313,30 +299,6 @@ refresh();
   gap: 0.75rem;
   margin-top: 1.1rem;
 }
-.perspective-switch {
-  display: flex;
-  border: 1px solid var(--color-rule);
-  border-radius: 0.55rem;
-  background: var(--color-paper);
-  padding: 0.18rem;
-  box-shadow: var(--shadow-xs);
-}
-.perspective-switch button {
-  display: flex;
-  height: 1.65rem;
-  align-items: center;
-  gap: 0.3rem;
-  border: 0;
-  border-radius: 0.4rem;
-  background: transparent;
-  padding: 0 0.55rem;
-  color: var(--color-muted);
-  font-size: 0.75rem;
-}
-.perspective-switch button.active {
-  background: var(--color-paper-3);
-  color: var(--color-ink);
-}
 .distribution-toolbar > label {
   display: flex;
   width: min(20rem, 40vw);
@@ -344,7 +306,7 @@ refresh();
   align-items: center;
   gap: 0.4rem;
   border: 1px solid var(--color-rule);
-  border-radius: 0.5rem;
+  border-radius: var(--radius-sm);
   background: var(--color-paper);
   padding: 0 0.55rem;
   color: var(--color-muted);
@@ -364,7 +326,7 @@ refresh();
   margin-top: 0.8rem;
   overflow: hidden;
   border: 1px solid var(--color-rule);
-  border-radius: 0.75rem;
+  border-radius: var(--radius-lg);
   background: var(--color-paper);
   box-shadow: var(--shadow-xs);
 }
@@ -404,7 +366,7 @@ refresh();
   align-items: center;
   gap: 0.75rem;
   border: 1px solid var(--color-rule);
-  border-radius: 0.65rem;
+  border-radius: var(--radius-md);
   background: var(--color-paper);
   padding: 0.55rem 0.65rem;
   box-shadow: var(--shadow-xs);
@@ -419,7 +381,7 @@ refresh();
   height: 2rem;
   place-items: center;
   border: 1px solid var(--color-rule);
-  border-radius: 0.58rem;
+  border-radius: var(--radius-sm);
   background: var(--color-paper-2);
   color: var(--color-accent);
   font-family: var(--font-mono);
@@ -467,7 +429,7 @@ refresh();
   align-items: center;
   gap: 0.25rem;
   border: 1px dashed var(--color-rule-strong);
-  border-radius: 0.45rem;
+  border-radius: var(--radius-sm);
   background: transparent;
   padding: 0 0.48rem;
   color: var(--color-muted);
@@ -489,7 +451,7 @@ refresh();
   display: grid;
   gap: 0.85rem;
   border: 1px solid var(--color-rule);
-  border-radius: 0.75rem;
+  border-radius: var(--radius-lg);
   background: var(--color-paper);
   padding: 0.85rem;
   box-shadow: var(--shadow-xs);
@@ -548,7 +510,7 @@ refresh();
 }
 .agent-skills span,
 .agent-skills em {
-  border-radius: 0.32rem;
+  border-radius: var(--radius-xs);
   background: var(--color-paper-2);
   padding: 0.16rem 0.3rem;
   color: var(--color-muted);
@@ -563,7 +525,7 @@ refresh();
   margin-top: 1rem;
   overflow: hidden;
   border: 1px solid var(--color-rule);
-  border-radius: 0.75rem;
+  border-radius: var(--radius-lg);
   background: var(--color-paper);
   box-shadow: var(--shadow-xs);
 }
@@ -653,7 +615,7 @@ refresh();
   flex: none;
   place-items: center;
   border: 1px solid var(--color-rule);
-  border-radius: 0.48rem;
+  border-radius: var(--radius-sm);
   background: var(--color-paper-3);
   color: var(--color-accent);
   font-size: 0.75rem;
@@ -775,11 +737,6 @@ refresh();
 .distribution-toolbar {
   margin-top: 1.5rem;
 }
-.perspective-switch button {
-  height: 2rem;
-  padding: 0 0.75rem;
-  font-size: 0.75rem;
-}
 .distribution-toolbar > label {
   height: 2.4rem;
 }
@@ -843,10 +800,6 @@ refresh();
 .distribution-workspace > header button {
   height: 2.4rem;
   padding: 0 0.8rem;
-  font-size: 0.85rem;
-}
-.perspective-switch button {
-  height: 2.35rem;
   font-size: 0.85rem;
 }
 .distribution-toolbar input {

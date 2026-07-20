@@ -2,6 +2,7 @@
 import { computed, nextTick, shallowRef, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import { AppsOutline, CompassOutline, GitBranchOutline, OptionsOutline, PulseOutline, SearchOutline, ShieldCheckmarkOutline } from '@vicons/ionicons5';
+import UiIcon from '../ui/UiIcon.vue';
 import { DialogContent, DialogOverlay, DialogPortal, DialogRoot, DialogTitle } from 'reka-ui';
 
 const open = defineModel<boolean>('open', { required: true });
@@ -28,7 +29,7 @@ watch(open, async (value) => { if (value) { query.value = ''; await nextTick(); 
       <DialogContent class="command-palette" :aria-describedby="undefined">
         <DialogTitle class="sr-only">命令面板</DialogTitle>
         <label class="command-search">
-          <span class="command-search__icon"><n-icon :component="SearchOutline" size="19" /></span>
+          <span class="command-search__icon"><UiIcon :component="SearchOutline" size="19" /></span>
           <span class="command-search__copy">
             <small>快速导航</small>
             <input ref="input" v-model="query" placeholder="搜索页面或命令…" @keydown.enter="filtered[0] && run(filtered[0].path)">
@@ -38,7 +39,7 @@ watch(open, async (value) => { if (value) { query.value = ''; await nextTick(); 
         <div class="command-list">
           <p>页面导航 <span>{{ filtered.length }} 项</span></p>
           <button v-for="item in filtered" :key="item.path" type="button" @click="run(item.path)">
-            <span class="command-item__icon"><n-icon :component="item.icon" size="18" /></span>
+            <span class="command-item__icon"><UiIcon :component="item.icon" size="18" /></span>
             <span class="command-item__copy"><b>{{ item.label }}</b><small>{{ item.hint }}</small></span>
             <kbd>↵</kbd>
           </button>
@@ -73,7 +74,7 @@ watch(open, async (value) => { if (value) { query.value = ''; await nextTick(); 
   grid-template-rows: auto minmax(0, 1fr);
   overflow: hidden;
   border: 1px solid var(--color-rule-strong);
-  border-radius: 1.15rem;
+  border-radius: var(--radius-xl);
   background: var(--color-paper-raised);
   background: color-mix(in srgb, var(--color-paper-raised) 88%, transparent);
   box-shadow: 0 2.25rem 6rem rgba(12, 13, 18, .24), 0 .3rem 1.2rem rgba(12, 13, 18, .12), inset 0 1px 0 rgba(255, 255, 255, .24);
@@ -104,7 +105,7 @@ watch(open, async (value) => { if (value) { query.value = ''; await nextTick(); 
   height: 2.45rem;
   place-items: center;
   border: 1px solid var(--color-rule);
-  border-radius: .72rem;
+  border-radius: var(--radius-lg);
   background: var(--color-paper-2);
   color: var(--color-accent);
   box-shadow: var(--shadow-xs);
@@ -118,7 +119,7 @@ watch(open, async (value) => { if (value) { query.value = ''; await nextTick(); 
 .command-search kbd,
 .command-list kbd {
   border: 1px solid var(--color-rule-strong);
-  border-radius: .42rem;
+  border-radius: var(--radius-sm);
   background: var(--color-paper-2);
   padding: .2rem .42rem;
   color: var(--color-faint);
@@ -131,11 +132,11 @@ watch(open, async (value) => { if (value) { query.value = ''; await nextTick(); 
 .command-list { display: grid; gap: .25rem; overflow: auto; padding: .8rem; }
 .command-list > p { display: flex; align-items: center; justify-content: space-between; margin: .35rem .65rem .45rem; color: var(--color-faint); font-size: .75rem; font-weight: 650; letter-spacing: .06em; text-transform: uppercase; }
 .command-list > p span { font-family: var(--font-mono); font-weight: 500; letter-spacing: 0; }
-.command-list button { display: grid; min-height: 3.8rem; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: .85rem; border: 1px solid transparent; border-radius: .78rem; background: transparent; padding: .55rem .7rem; color: var(--color-muted); text-align: left; outline: 0; transition: border-color var(--dur-instant), background var(--dur-instant), box-shadow var(--dur-instant), transform var(--dur-instant); }
+.command-list button { display: grid; min-height: 3.8rem; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: .85rem; border: 1px solid transparent; border-radius: var(--radius-lg); background: transparent; padding: .55rem .7rem; color: var(--color-muted); text-align: left; outline: 0; transition: border-color var(--dur-instant), background var(--dur-instant), box-shadow var(--dur-instant), transform var(--dur-instant); }
 .command-list button:hover,
 .command-list button:focus-visible { border-color: color-mix(in srgb, var(--color-accent) 22%, var(--color-rule)); background: var(--color-accent-soft); box-shadow: inset 0 1px 0 rgba(255, 255, 255, .18); transform: translateY(-1px); }
 
-.command-item__icon { display: grid; width: 2.25rem; height: 2.25rem; place-items: center; border: 1px solid var(--color-rule); border-radius: .65rem; background: var(--color-paper-2); color: var(--color-muted); transition: border-color var(--dur-instant), background var(--dur-instant), color var(--dur-instant); }
+.command-item__icon { display: grid; width: 2.25rem; height: 2.25rem; place-items: center; border: 1px solid var(--color-rule); border-radius: var(--radius-md); background: var(--color-paper-2); color: var(--color-muted); transition: border-color var(--dur-instant), background var(--dur-instant), color var(--dur-instant); }
 .command-list button:hover .command-item__icon,
 .command-list button:focus-visible .command-item__icon { border-color: color-mix(in srgb, var(--color-accent) 28%, var(--color-rule)); background: var(--color-paper-raised); color: var(--color-accent); }
 .command-item__copy b,

@@ -28,7 +28,6 @@ export default defineConfig({
       output: {
         advancedChunks: {
           groups: [
-            { name: 'naive-ui', test: /node_modules\/naive-ui/ },
             { name: 'vue-vendor', test: /node_modules\/@vue|node_modules\/vue/ },
           ],
         },

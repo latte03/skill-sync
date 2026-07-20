@@ -54,7 +54,7 @@ const initials = computed(() => (props.agentName || props.agentId)
 
 <style scoped>
 .agent-brand-icon { display:grid;flex:none;place-items:center;border:1px solid var(--color-rule-strong);border-radius:28%;background:color-mix(in srgb,var(--color-paper) 84%,transparent);color:var(--color-ink-2);box-shadow:inset 0 1px 0 rgba(255,255,255,.12);overflow:hidden; }
-.agent-brand-icon__svg { display:grid;width:64%;height:64%;place-items:center; }
+.agent-brand-icon__svg { display:grid;width:84%;height:84%;place-items:center; }
 .agent-brand-icon__svg :deep(svg) { display:block;width:100%;height:100%; }
 .agent-brand-icon b { font-family:var(--font-mono);font-size:.75rem;font-weight:720;letter-spacing:-.03em; }
 </style>

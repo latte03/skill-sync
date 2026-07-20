@@ -29,7 +29,7 @@ withDefaults(defineProps<{
 
 <style scoped>
 .ui-button { display:inline-flex;min-width:0;align-items:center;justify-content:center;gap:.5rem;border:1px solid transparent;border-radius:var(--radius-sm);padding:0 .85rem;font-family:var(--font-body);font-size:.875rem;font-weight:620;line-height:1;white-space:nowrap;box-shadow:var(--shadow-xs);transition:transform var(--dur-instant) var(--ease-out),border-color var(--dur-fast),background-color var(--dur-fast),color var(--dur-fast),box-shadow var(--dur-fast); }
-.ui-button--sm { min-height:2.25rem; }.ui-button--md { min-height:2.6rem; }.ui-button--block { width:100%; }
+.ui-button--sm { min-height:2rem; font-size: var(--text-sm);padding:4px 8px;}.ui-button--md { min-height:2.6rem; }.ui-button--block { width:100%; }
 .ui-button--secondary { border-color:var(--color-rule-strong);background:var(--color-paper-raised);color:var(--color-ink-2); }.ui-button--secondary:hover { border-color:color-mix(in srgb,var(--color-accent) 28%,var(--color-rule-strong));background:var(--color-paper);color:var(--color-ink);box-shadow:var(--shadow-sm); }
 .ui-button--primary { border-color:var(--color-accent);background:var(--color-accent);color:var(--color-accent-ink);box-shadow:0 5px 15px color-mix(in srgb,var(--color-accent) 22%,transparent); }.ui-button--primary:hover { border-color:var(--color-accent-hover);background:var(--color-accent-hover);box-shadow:0 7px 20px color-mix(in srgb,var(--color-accent) 30%,transparent); }
 .ui-button--ghost { border-color:transparent;background:transparent;color:var(--color-muted);box-shadow:none; }.ui-button--ghost:hover { background:var(--color-paper-3);color:var(--color-ink); }

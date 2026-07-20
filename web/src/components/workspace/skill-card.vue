@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import { AddOutline, ChevronForwardOutline } from '@vicons/ionicons5';
+import UiIcon from '../ui/UiIcon.vue';
 import { useRouter } from 'vue-router';
 import AgentStack from './agent-stack.vue';
 import DistributionPicker from './distribution-picker.vue';
@@ -10,8 +11,7 @@ const props = defineProps<{ skill: SkillInfo; agents: AgentInfo[]; selected?: bo
 const router = useRouter();
 const emit = defineEmits<{
   select: [skill: SkillInfo];
-  preview: [skill: SkillInfo, input: { agents: string[]; mode: 'symlink' | 'copy' }];
-  distribute: [skill: SkillInfo, input: { agents: string[]; mode: 'symlink' | 'copy' }];
+  distribute: [skill: SkillInfo, input: { add: string[]; remove: string[]; mode: 'symlink' | 'copy' }];
 }>();
 const displayName = computed(() => props.skill.name.split('/').filter(Boolean).at(-1) ?? props.skill.name);
 const namespace = computed(() => props.skill.name.includes('/') ? props.skill.name.slice(0, props.skill.name.lastIndexOf('/')) : 'Local workspace');
@@ -21,21 +21,180 @@ function openDetails() { router.push({ name: 'skillDetail', params: { name: prop
 
 <template>
   <article :class="['skill-card', selected && 'skill-card--selected']" tabindex="0" role="button" @click="emit('select', skill)" @keydown.enter="emit('select', skill)" @keydown.space.prevent="emit('select', skill)">
-    <header><span class="skill-glyph">{{ initials }}</span><div><h2>{{ displayName }}</h2><p>{{ namespace }}</p></div><span :class="['skill-state', skill.managed ? 'skill-state--ok' : 'skill-state--warning']"><i />{{ skill.managed ? 'Managed' : 'Unlinked' }}</span></header>
-    <p class="skill-description">{{ skill.description || '这个 Skill 暂时没有提供描述。' }}</p>
-    <div class="skill-meta"><span>v{{ skill.version }}</span><i /> <span>{{ skill.tags[0] || 'local' }}</span></div>
-    <footer><div class="distribution-summary"><AgentStack v-if="skill.agents.length" :agent-names="skill.agents" :agents="agents" /><span v-else>尚未分发</span><small v-if="skill.agents.length">{{ skill.agents.length }} targets</small></div><div class="card-actions"><button class="detail-action" type="button" :aria-label="`打开 ${skill.name} 完整详情`" @click.stop="openDetails">详情<n-icon :component="ChevronForwardOutline" size="13" /></button><DistributionPicker :skill="skill" :agents="agents" :busy="busy" @preview="emit('preview', skill, $event)" @distribute="emit('distribute', skill, $event)"><button class="add-agent" type="button" :aria-label="`为 ${skill.name} 添加分发目标`" title="添加分发目标" @click.stop><n-icon :component="AddOutline" size="15" /></button></DistributionPicker></div></footer>
+    <header>
+      <span class="skill-glyph">{{ initials }}</span>
+      <div class="skill-identity">
+        <h2>{{ displayName }}</h2>
+        <p>{{ namespace }}</p>
+      </div>
+      <span :class="['skill-state', skill.managed ? 'skill-state--ok' : 'skill-state--warning']">{{ skill.managed ? 'Managed' : 'Unlinked' }}</span>
+    </header>
+    <p class="skill-description">{{ skill.description || '暂无描述' }}</p>
+    <footer>
+      <div class="skill-meta">
+        <span>v{{ skill.version }}</span>
+        <i />
+        <span>{{ skill.tags[0] || 'local' }}</span>
+      </div>
+      <div class="card-actions">
+        <div class="distribution-summary">
+          <AgentStack v-if="skill.agents.length" :agent-names="skill.agents" :agents="agents" />
+          <small v-if="skill.agents.length">{{ skill.agents.length }}</small>
+        </div>
+        <button class="detail-action" type="button" :aria-label="`打开 ${skill.name} 详情`" @click.stop="openDetails"><UiIcon :component="ChevronForwardOutline" size="14" /></button>
+        <DistributionPicker :skill="skill" :agents="agents" :busy="busy" @distribute="emit('distribute', skill, $event)">
+          <button class="add-agent" type="button" :aria-label="`为 ${skill.name} 添加分发目标`" title="添加分发目标" @click.stop><UiIcon :component="AddOutline" size="14" /></button>
+        </DistributionPicker>
+      </div>
+    </footer>
   </article>
 </template>
 
 <style scoped>
-.skill-card { position: relative; display: grid; min-height: 10.25rem; grid-template-rows: auto minmax(2.6rem,auto) auto auto; gap: .72rem; overflow: visible; border: 1px solid var(--color-rule); border-radius: var(--radius-lg); background: var(--color-paper); padding: .85rem; box-shadow: var(--shadow-xs); cursor: default; outline: none; transition: border-color var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out); }.skill-card:hover { border-color: var(--color-rule-strong); box-shadow: var(--shadow-card); transform: translateY(-1px); }.skill-card:focus-visible { box-shadow: 0 0 0 3px var(--color-focus-ring), var(--shadow-card); }.skill-card--selected { border-color: color-mix(in srgb, var(--color-accent) 58%, var(--color-rule)); box-shadow: 0 0 0 1px var(--color-accent-soft), var(--shadow-card); }
-.skill-card header { display: grid; min-width: 0; grid-template-columns: auto minmax(0,1fr) auto; align-items: start; gap: .65rem; }.skill-glyph { display: grid; width: 2rem; height: 2rem; place-items: center; border: 1px solid var(--color-rule); border-radius: .62rem; background: linear-gradient(150deg, var(--color-paper), var(--color-paper-3)); color: var(--color-accent); font-family: var(--font-mono); font-size: .75rem; font-weight: 750; box-shadow: var(--shadow-xs); }.skill-card h2 { overflow: hidden; margin: .06rem 0 0; color: var(--color-ink); font-size: .76rem; font-weight: 650; letter-spacing: -.02em; text-overflow: ellipsis; white-space: nowrap; }.skill-card header p { overflow: hidden; margin: .08rem 0 0; color: var(--color-faint); font-family: var(--font-mono); font-size: .75rem; text-overflow: ellipsis; white-space: nowrap; }.skill-state { display: flex; align-items: center; gap: .27rem; margin-top: .08rem; color: var(--color-muted); font-family: var(--font-mono); font-size: .75rem; }.skill-state i { width: .34rem; height: .34rem; border-radius: 999px; }.skill-state--ok i { background: var(--color-success); box-shadow: 0 0 0 3px var(--color-success-soft); }.skill-state--warning { color: var(--color-warning); }.skill-state--warning i { background: var(--color-warning); box-shadow: 0 0 0 3px var(--color-warning-soft); }
-.skill-description { display: -webkit-box; overflow: hidden; max-height: 2.05rem; margin: 0; color: var(--color-muted); font-size: .75rem; line-height: 1.48; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }.skill-meta { display: flex; align-items: center; gap: .38rem; color: var(--color-faint); font-family: var(--font-mono); font-size: .75rem; }.skill-meta i { width: .18rem; height: .18rem; border-radius: 999px; background: var(--color-rule-strong); }.skill-card footer { display: flex; min-width: 0; align-items: end; justify-content: space-between; gap: .65rem; padding-top: .68rem; border-top: 1px solid var(--color-rule); }.distribution-summary { display: flex; min-width: 0; align-items: center; }.distribution-summary > span { color: var(--color-faint); font-size: .75rem; }.distribution-summary small { margin-left: .45rem; color: var(--color-faint); font-family: var(--font-mono); font-size: .75rem; }.card-actions { display:flex;min-width:0;align-items:center;justify-content:flex-end;gap:.35rem;margin-left:auto; }.add-agent { display:grid;width:1.65rem;height:1.65rem;flex:none;place-items:center;border:1px dashed var(--color-rule);border-radius:.48rem;background:var(--color-paper);color:var(--color-muted); }.add-agent:hover { border-style:solid;border-color:var(--color-accent);background:var(--color-accent-soft);color:var(--color-accent); }.detail-action { display:flex;height:1.65rem;align-items:center;gap:.15rem;border:1px solid transparent;border-radius:.48rem;background:transparent;padding:0 .3rem 0 .5rem;color:var(--color-muted);font-size:.75rem;font-weight:590;opacity:0;pointer-events:none;transform:translateX(.3rem);transition:opacity var(--dur-fast),transform var(--dur-fast) var(--ease-out),border-color var(--dur-fast),background var(--dur-fast),color var(--dur-fast); }.skill-card:hover .detail-action,.skill-card:focus-within .detail-action,.skill-card--selected .detail-action,.detail-action:focus-visible { opacity:1;pointer-events:auto;transform:none; }.detail-action:hover { border-color:var(--color-rule-strong);background:var(--color-paper-3);color:var(--color-ink); }
-.skill-card { min-height: 12rem; grid-template-rows: auto minmax(3.1rem,auto) auto auto; gap: .95rem; padding: 1.05rem; }
-.skill-card header { gap: .8rem; }.skill-glyph { width: 2.35rem; height: 2.35rem; font-size: .75rem; }
-.skill-description { max-height: 2.55rem; font-size: .76rem; line-height: 1.58; }
-.skill-meta { gap: .5rem; }.skill-card footer { gap: .8rem; padding-top: .9rem; }
-.distribution-summary>span { font-size: .75rem; }.distribution-summary small { font-size: .75rem; }
-.add-agent { width:1.95rem;height:1.95rem; }.detail-action { height:1.95rem;padding-inline:.6rem .35rem; }
+.skill-card {
+  position: relative;
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  gap: .625rem;
+  overflow: hidden;
+  min-width: 0;
+  border: 1px solid var(--color-rule);
+  border-radius: var(--radius-lg);
+  background: var(--color-paper);
+  padding: 1rem;
+  cursor: default;
+  outline: none;
+  box-shadow: var(--shadow-xs);
+  transition: border-color var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out);
+}
+.skill-card:hover {
+  border-color: var(--color-rule-strong);
+  box-shadow: var(--shadow-card);
+}
+.skill-card:focus-visible {
+  box-shadow: 0 0 0 2px var(--color-focus-ring);
+}
+.skill-card--selected {
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 1px var(--color-accent-soft);
+}
+
+.skill-card header {
+  display: flex;
+  align-items: center;
+  gap: .625rem;
+}
+.skill-glyph {
+  display: grid;
+  width: 2.25rem;
+  height: 2.25rem;
+  flex: none;
+  place-items: center;
+  border-radius: var(--radius-sm);
+  background: var(--color-accent-soft);
+  color: var(--color-accent);
+  font-family: var(--font-mono);
+  font-size: var(--text-base);
+  font-weight: 700;
+}
+.skill-identity { min-width: 0; flex: 1; }
+.skill-card h2 {
+  overflow: hidden;
+  margin: 0;
+  color: var(--color-ink);
+  font-size: var(--text-base);
+  font-weight: 600;
+  letter-spacing: -.01em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.skill-card header p {
+  overflow: hidden;
+  margin: .125rem 0 0;
+  color: var(--color-faint);
+  font-size: var(--text-xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.skill-state {
+  flex: none;
+  border-radius: 999px;
+  padding: .125rem .5rem;
+  font-size: var(--text-xs);
+  font-weight: 550;
+}
+.skill-state--ok {
+  background: var(--color-success-soft);
+  color: var(--color-success);
+}
+.skill-state--warning {
+  background: var(--color-warning-soft);
+  color: var(--color-warning);
+}
+
+.skill-description {
+  display: -webkit-box;
+  overflow: hidden;
+  margin: 0;
+  color: var(--color-muted);
+  font-size: var(--text-sm);
+  line-height: 1.5;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.skill-card footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: .5rem;
+}
+.skill-meta {
+  display: flex;
+  align-items: center;
+  gap: .375rem;
+  color: var(--color-faint);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+}
+.skill-meta i {
+  width: 2px;
+  height: 2px;
+  border-radius: 999px;
+  background: var(--color-rule-strong);
+}
+.card-actions {
+  display: flex;
+  align-items: center;
+  gap: .25rem;
+}
+.distribution-summary {
+  display: flex;
+  align-items: center;
+}
+.distribution-summary small {
+  margin-left: .25rem;
+  color: var(--color-faint);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+}
+.detail-action, .add-agent {
+  display: grid;
+  width: 1.5rem;
+  height: 1.5rem;
+  place-items: center;
+  border: 0;
+  border-radius: var(--radius-xs);
+  background: transparent;
+  color: var(--color-faint);
+  transition: background var(--dur-fast), color var(--dur-fast);
+}
+.detail-action:hover, .add-agent:hover {
+  background: var(--color-paper-2);
+  color: var(--color-ink);
+}
+.add-agent:hover {
+  color: var(--color-accent);
+  background: var(--color-accent-soft);
+}
 </style>

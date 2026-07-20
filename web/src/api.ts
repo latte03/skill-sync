@@ -121,6 +121,20 @@ export interface SkillDependencyReview {
   requiresExplicitInstall: boolean;
 }
 
+export interface SkillFileEntry {
+  name: string;
+  path: string;
+  type: 'file' | 'directory';
+  size?: number;
+  children?: SkillFileEntry[];
+}
+
+export interface SkillFileContent {
+  path: string;
+  content: string;
+  size: number;
+}
+
 export interface DeployOptions {
   mode?: 'symlink' | 'copy';
   force?: boolean;
@@ -142,6 +156,12 @@ export const api = {
 
   getSkillDetail: (name: string) =>
     request<SkillDetail>(`/skill/detail${qs({ name })}`),
+
+  getSkillFiles: (name: string) =>
+    request<{ files: SkillFileEntry[] }>(`/skill/files${qs({ name })}`),
+
+  getSkillFileContent: (name: string, filePath: string) =>
+    request<SkillFileContent>(`/skill/file${qs({ name, path: filePath })}`),
 
   search: (query: string, scope?: 'all' | 'local' | 'remote', limit?: number) => {
     const params = new URLSearchParams({ q: query });

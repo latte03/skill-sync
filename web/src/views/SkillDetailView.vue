@@ -1,30 +1,36 @@
 <script setup lang="ts">
-import { computed, ref, shallowRef, watch } from "vue";
+import { computed, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import { useMessage } from "naive-ui";
 import {
-  ArrowBackOutline,
   CloudDownloadOutline,
   FlashOutline,
   TrashOutline,
+  CloseCircleOutline,
 } from "@vicons/ionicons5";
-import { MdPreview } from "md-editor-v3";
-import "md-editor-v3/lib/preview.css";
+import { PopoverArrow, PopoverContent, PopoverPortal, PopoverRoot, PopoverTrigger } from "reka-ui";
 import DependencyReviewPanel from "../components/skill/DependencyReviewPanel.vue";
 import SkillSourcePanel from "../components/skill/SkillSourcePanel.vue";
+import SkillFileBrowser from "../components/skill/SkillFileBrowser.vue";
 import { api } from "../api";
 import type { AgentInfo, SkillDetail, UpdateCheckResult } from "../api";
-import UiSelect from "../components/ui/UiSelect.vue";
+import UiButton from "../components/ui/UiButton.vue";
+import UiSegmented from "../components/ui/UiSegmented.vue";
+import UiConfirm from "../components/ui/UiConfirm.vue";
+import AgentIcon from "../components/agent-icon.vue";
+import { useToast } from "../composables/useToast";
 
 const route = useRoute();
 const router = useRouter();
-const message = useMessage();
+const toast = useToast();
 const skillName = computed(() => String(route.params.name));
 const detail = ref<SkillDetail | null>(null);
 const agents = ref<AgentInfo[]>([]);
 const loading = ref(false);
-const deploymentTargets = ref<string[]>([]);
-const deploymentMode = shallowRef<"symlink" | "copy">("symlink");
+const deploymentMode = ref<"symlink" | "copy">("symlink");
+const modeOptions = [
+  { value: "symlink", label: "符号链接" },
+  { value: "copy", label: "复制" },
+];
 const deploying = ref(false);
 const undeploying = ref(false);
 const checkingUpdate = ref(false);
@@ -33,20 +39,15 @@ const updateResult = ref<UpdateCheckResult | null>(null);
 const removing = ref(false);
 
 const installedAgents = computed(() =>
-  agents.value.filter((agent) => agent.installed),
+  agents.value
+    .filter((agent) => agent.installed)
+    .sort((a, b) => {
+      const deployed = detail.value?.skill.agents ?? [];
+      const aDeployed = deployed.includes(a.name) ? 0 : 1;
+      const bDeployed = deployed.includes(b.name) ? 0 : 1;
+      return aDeployed - bDeployed;
+    }),
 );
-const agentOptions = computed(() =>
-  installedAgents.value.map((agent) => ({
-    label: agent.displayName,
-    value: agent.name,
-  })),
-);
-const sourceText = computed(() => {
-  const source = detail.value?.skill.source;
-  return source?.type === "github"
-    ? `${source.owner}/${source.repo}${source.skillPath ? ` · ${source.skillPath}` : ""}`
-    : "纯本地 Skill";
-});
 const distributionCoverage = computed(
   () =>
     `${detail.value?.skill.agents.length ?? 0}/${installedAgents.value.length}`,
@@ -63,31 +64,23 @@ async function loadDetail() {
     detail.value = detailResponse;
     agents.value = agentResponse.agents;
   } catch (error) {
-    message.error(`加载 Skill 失败: ${(error as Error).message}`);
+    toast.error(`加载 Skill 失败: ${(error as Error).message}`);
   } finally {
     loading.value = false;
   }
 }
 
-async function deploy(dryRun = false) {
-  if (deploymentTargets.value.length === 0) return;
+async function deploy(targets: string[]) {
+  if (targets.length === 0) return;
   deploying.value = true;
   try {
-    await api.deploySkill(skillName.value, deploymentTargets.value, {
+    await api.deploySkill(skillName.value, targets, {
       mode: deploymentMode.value,
-      dryRun,
     });
-    message.success(
-      dryRun
-        ? "预览完成：未写入任何分发文件"
-        : `已分发到 ${deploymentTargets.value.join("、")}`,
-    );
-    if (!dryRun) {
-      deploymentTargets.value = [];
-      await loadDetail();
-    }
+    toast.success(`已分发到 ${targets.join("、")}`);
+    await loadDetail();
   } catch (error) {
-    message.error(`分发失败: ${(error as Error).message}`);
+    toast.error(`分发失败: ${(error as Error).message}`);
   } finally {
     deploying.value = false;
   }
@@ -98,10 +91,10 @@ async function undeploy(targets: string[]) {
   undeploying.value = true;
   try {
     await api.undeploySkill(skillName.value, targets);
-    message.success(`已取消 ${targets.join("、")} 的分发`);
+    toast.success(`已取消 ${targets.join("、")} 的分发`);
     await loadDetail();
   } catch (error) {
-    message.error(`取消分发失败: ${(error as Error).message}`);
+    toast.error(`取消分发失败: ${(error as Error).message}`);
   } finally {
     undeploying.value = false;
   }
@@ -112,7 +105,7 @@ async function checkUpdate() {
   try {
     updateResult.value = (await api.checkSkillUpdate(skillName.value)).result;
   } catch (error) {
-    message.error(`检查更新失败: ${(error as Error).message}`);
+    toast.error(`检查更新失败: ${(error as Error).message}`);
   } finally {
     checkingUpdate.value = false;
   }
@@ -122,11 +115,11 @@ async function updateSkill() {
   updating.value = true;
   try {
     const result = await api.updateSkill(skillName.value);
-    message.success(`已更新至 ${result.result.newVersion}`);
+    toast.success(`已更新至 ${result.result.newVersion}`);
     await loadDetail();
     await checkUpdate();
   } catch (error) {
-    message.error(`更新失败: ${(error as Error).message}`);
+    toast.error(`更新失败: ${(error as Error).message}`);
   } finally {
     updating.value = false;
   }
@@ -136,10 +129,10 @@ async function removeSkill() {
   removing.value = true;
   try {
     await api.removeSkill(skillName.value, "all");
-    message.success("Skill 与全部分发已移除");
+    toast.success("Skill 与全部分发已移除");
     await router.push({ name: "skills" });
   } catch (error) {
-    message.error(`删除失败: ${(error as Error).message}`);
+    toast.error(`删除失败: ${(error as Error).message}`);
   } finally {
     removing.value = false;
   }
@@ -149,507 +142,214 @@ watch(skillName, loadDetail, { immediate: true });
 </script>
 
 <template>
-  <div class="app-page detail-page">
-    <div class="detail-topline">
-      <n-button quaternary size="small" @click="router.push({ name: 'skills' })"
-        ><template #icon><n-icon :component="ArrowBackOutline" /></template
-        >返回技能库</n-button
-      >
-      <p class="meta-label">Skill 工作台</p>
-    </div>
-    <n-spin :show="loading">
-      <div v-if="detail" class="detail-content">
-        <header class="skill-header">
-          <div class="page-heading">
-            <p class="page-kicker">
-              {{ detail.skill.managed ? "已纳管 Skill" : "本地 Skill" }}
-            </p>
-            <h1 class="page-title">{{ detail.skill.name }}</h1>
-            <p class="page-summary">
-              {{
-                detail.skill.description ||
-                "没有描述；可在 SKILL.md 中补充用途说明。"
-              }}
-            </p>
-          </div>
-          <div class="header-actions">
-            <n-tag
-              :type="detail.skill.managed ? 'success' : 'default'"
-              size="small"
-              >{{ detail.skill.managed ? "已纳管" : "未纳管" }}</n-tag
-            ><n-tag size="small">v{{ detail.skill.version }}</n-tag>
+  <div class="detail-page">
+    <div v-if="loading" class="detail-loading"><span class="spinner" /></div>
+    <template v-else-if="detail">
+        <!-- Header -->
+        <header class="detail-header">
+
+          <h1>{{ detail.skill.name }}</h1>
+          <div class="header-tags mt-2 mb-4">
+              <span class="tag" :class="detail.skill.managed ? 'tag--ok' : ''">{{ detail.skill.managed ? "已纳管" : "未纳管" }}</span>
+              <span class="tag">v{{ detail.skill.version }}</span>
+            </div>
+          <p class="header-desc">{{ detail.skill.description || "没有描述；可在 SKILL.md 中补充用途说明。" }}</p>
+          <div class="header-metrics">
+            <span class="metric-item"><em>分发</em>{{ distributionCoverage }}</span>
+            <span class="metric-sep" />
+            <span class="metric-item"><em>来源</em>{{ detail.skill.source.type === "github" ? "远程" : "本地" }}</span>
+            <span class="metric-sep" />
+            <span class="metric-item"><em>备份</em>{{ detail.backups.length }}</span>
           </div>
         </header>
-        <section class="overview-grid">
-          <article class="overview-item">
-            <p class="metric-label">分发覆盖</p>
-            <strong>{{ distributionCoverage }}</strong
-            ><span>已安装 Agent 覆盖</span>
-          </article>
-          <article class="overview-item">
-            <p class="metric-label">来源</p>
-            <strong>{{
-              detail.skill.source.type === "github" ? "远程" : "本地"
-            }}</strong
-            ><span>{{ sourceText }}</span>
-          </article>
-          <article class="overview-item">
-            <p class="metric-label">备份</p>
-            <strong>{{ detail.backups.length }}</strong
-            ><span>可用于更新前恢复</span>
-          </article>
-        </section>
 
-        <section class="distribution surface">
-          <div class="section-heading">
-            <div>
-              <p class="meta-label">分发控制</p>
-              <h2>分发控制台</h2>
-              <p>先预览，再写入。集中管理每个 Agent 的 Skill 副本。</p>
-            </div>
-            <n-button
-              size="small"
-              :loading="undeploying"
-              :disabled="detail.skill.agents.length === 0"
-              @click="undeploy(detail.skill.agents)"
-              >全部取消分发</n-button
-            >
-          </div>
-          <div class="distribution-workspace">
-            <div class="distribution-form">
-              <UiSelect
-                v-model="deploymentTargets"
-                :options="agentOptions"
-                multiple
-                placeholder="选择要覆盖的 Agent"
-              /><n-radio-group
-                v-model:value="deploymentMode"
-                name="deployment-mode"
-                ><n-radio value="symlink">符号链接</n-radio
-                ><n-radio value="copy">复制副本</n-radio></n-radio-group
-              >
-              <div class="inline-actions">
-                <n-button
-                  :disabled="deploymentTargets.length === 0"
-                  :loading="deploying"
-                  @click="deploy(true)"
-                  >预览变更</n-button
-                ><n-button
-                  type="primary"
-                  :disabled="deploymentTargets.length === 0"
-                  :loading="deploying"
-                  @click="deploy(false)"
-                  ><template #icon
-                    ><n-icon :component="FlashOutline" /></template
-                  >确认分发</n-button
-                >
+        <!-- Two-column body -->
+        <div class="detail-body">
+          <!-- Left: File Browser -->
+          <main class="detail-main">
+            <SkillFileBrowser :name="skillName" />
+          </main>
+
+          <!-- Right: Sidebar -->
+          <aside class="detail-sidebar">
+            <!-- Distribution -->
+            <section class="sidebar-section">
+              <div class="sidebar-head">
+                <h2>分发</h2>
+                <UiButton v-if="detail.skill.agents.length > 0" variant="danger" size="sm" :loading="undeploying" @click="undeploy(detail.skill.agents)">
+                  <template #icon><CloseCircleOutline class="icon-12" /></template>
+                  全部取消
+                </UiButton>
               </div>
-            </div>
-            <div class="agent-grid">
-              <article
-                v-for="agent in installedAgents"
-                :key="agent.name"
-                class="agent-state"
-                :class="{
-                  'agent-state--active': detail.skill.agents.includes(
-                    agent.name,
-                  ),
-                }"
-              >
-                <div>
-                  <strong>{{ agent.displayName }}</strong
-                  ><span>{{
-                    detail.skill.agents.includes(agent.name)
-                      ? "已分发"
-                      : "未覆盖"
-                  }}</span>
-                </div>
-                <n-button
-                  v-if="detail.skill.agents.includes(agent.name)"
-                  size="tiny"
-                  quaternary
-                  :loading="undeploying"
-                  @click="undeploy([agent.name])"
-                  >移除</n-button
-                >
-              </article>
-              <n-empty
-                v-if="installedAgents.length === 0"
-                description="尚未检测到已安装的 Agent"
-              />
-            </div>
-          </div>
-        </section>
-
-        <section class="maintenance-grid">
-          <div class="maintenance-main">
-            <SkillSourcePanel
-              :name="skillName"
-              :source="detail.skill.source"
-              @associated="loadDetail"
-            /><DependencyReviewPanel :name="skillName" />
-          </div>
-          <aside class="maintenance-aside">
-            <section class="update-panel">
-              <p class="meta-label">更新</p>
-              <h2>更新检查</h2>
-              <p>
-                {{
-                  updateResult
-                    ? updateResult.isLocal
-                      ? "当前来源仍为纯本地，关联远程来源后可更新。"
-                      : updateResult.hasUpdate
-                        ? `${updateResult.currentVersion} → ${updateResult.remoteVersion}`
-                        : "已是最新版本"
-                    : "更新操作会保留备份，先检查再执行。"
-                }}
-              </p>
-              <div class="inline-actions">
-                <n-button
-                  size="small"
-                  :loading="checkingUpdate"
-                  @click="checkUpdate"
-                  >检查更新</n-button
-                ><n-popconfirm
-                  v-if="updateResult?.hasUpdate"
-                  @positive-click="updateSkill"
-                  ><template #trigger
-                    ><n-button type="primary" size="small" :loading="updating"
-                      ><template #icon
-                        ><n-icon :component="CloudDownloadOutline" /></template
-                      >安装更新</n-button
-                    ></template
-                  >将创建备份并更新此 Skill，确定继续？</n-popconfirm
-                >
+              <div class="agent-list">
+                <PopoverRoot v-for="agent in installedAgents" :key="agent.name">
+                  <PopoverTrigger as-child>
+                    <button
+                      type="button"
+                      class="agent-chip"
+                      :class="{ 'agent-chip--deployed': detail.skill.agents.includes(agent.name) }"
+                    >
+                      <AgentIcon :agent-id="agent.name" :agent-name="agent.displayName" :size="28" />
+                    </button>
+                  </PopoverTrigger>
+                  <PopoverPortal>
+                    <PopoverContent class="agent-popover" side="bottom" :side-offset="8" align="center">
+                      <div class="popover-head mb-2">
+                        <AgentIcon :agent-id="agent.name" :agent-name="agent.displayName" :size="20" />
+                        <strong>{{ agent.displayName }}</strong>
+                      </div>
+                      <code class="popover-dir block">{{ agent.skillsDir }}</code>
+                      <UiSegmented class="mt-2 mb-2" v-model="deploymentMode" :options="modeOptions" size="sm" block />
+                      <UiButton
+                        v-if="detail.skill.agents.includes(agent.name)"
+                        size="sm" class="popover-action"
+                        variant="danger"
+                        :loading="undeploying"
+                        @click="undeploy([agent.name])"
+                      >取消分发</UiButton>
+                      <UiButton
+                        v-else
+                        variant="primary" size="sm" class="popover-action"
+                        :loading="deploying"
+                        @click="deploy([agent.name])"
+                      >
+                        <template #icon><FlashOutline class="icon-12" /></template>
+                        分发
+                      </UiButton>
+                      <PopoverArrow class="popover-arrow" :width="10" :height="5" />
+                    </PopoverContent>
+                  </PopoverPortal>
+                </PopoverRoot>
+                <p v-if="installedAgents.length === 0" class="empty-hint">尚未检测到已安装的 Agent</p>
               </div>
             </section>
-            <section class="backup-panel">
-              <p class="meta-label">恢复</p>
-              <h2>备份记录</h2>
-              <ul v-if="detail.backups.length">
-                <li v-for="backup in detail.backups" :key="backup.dir">
-                  <span>v{{ backup.version }}</span
-                  ><time>{{ backup.timestamp }}</time>
-                </li>
-              </ul>
-              <n-empty v-else size="small" description="尚无更新备份" />
+
+            <!-- Source -->
+            <section class="sidebar-section">
+              <SkillSourcePanel :name="skillName" :source="detail.skill.source" @associated="loadDetail" />
             </section>
-            <section class="danger-panel">
-              <p class="meta-label">危险操作</p>
-              <h2>完全删除</h2>
-              <p>删除中央仓库内容与全部已分发副本。</p>
-              <n-popconfirm @positive-click="removeSkill"
-                ><template #trigger
-                  ><n-button type="error" size="small" :loading="removing"
-                    ><template #icon
-                      ><n-icon :component="TrashOutline" /></template
-                    >删除 Skill</n-button
-                  ></template
-                >此操作会删除所有分发副本，确定继续？</n-popconfirm
-              >
+
+            <!-- Dependencies -->
+            <section class="sidebar-section">
+              <DependencyReviewPanel :name="skillName" />
+            </section>
+
+            <!-- Update & Backup -->
+            <section class="sidebar-section">
+              <div class="sidebar-head">
+                <h2>更新</h2>
+                <UiButton variant="ghost" size="sm" :loading="checkingUpdate" @click="checkUpdate">检查更新</UiButton>
+              </div>
+              <p class="sidebar-desc">{{ updateResult ? (updateResult.isLocal ? "关联远程来源后可更新。" : updateResult.hasUpdate ? `${updateResult.currentVersion} → ${updateResult.remoteVersion}` : "已是最新版本") : "先检查再执行，更新前自动备份。" }}</p>
+              <div v-if="updateResult?.hasUpdate" class="sidebar-actions">
+                <UiConfirm title="安装更新" description="将创建备份并更新此 Skill，确定继续？" confirm-text="更新" @confirm="updateSkill">
+                  <template #trigger>
+                    <UiButton size="sm" variant="primary" :loading="updating">
+                      <template #icon><CloudDownloadOutline class="icon-13" /></template>
+                      安装更新
+                    </UiButton>
+                  </template>
+                </UiConfirm>
+              </div>
+              <template v-if="detail.backups.length">
+                <h3 class="sidebar-subtitle">备份</h3>
+                <ul class="backup-list">
+                  <li v-for="backup in detail.backups" :key="backup.dir">
+                    <span>v{{ backup.version }}</span>
+                    <time>{{ backup.timestamp }}</time>
+                  </li>
+                </ul>
+              </template>
+            </section>
+
+            <!-- Danger -->
+            <section class="sidebar-section sidebar-section--danger">
+              <h2 class="sidebar-title">危险操作</h2>
+              <p class="sidebar-desc">删除中央仓库内容与全部已分发副本。</p>
+              <UiConfirm title="删除 Skill" description="此操作会删除所有分发副本，确定继续？" confirm-text="删除" variant="danger" @confirm="removeSkill">
+                <template #trigger>
+                  <UiButton size="sm" variant="danger" :loading="removing">
+                    <template #icon><TrashOutline class="icon-13" /></template>
+                    删除 Skill
+                  </UiButton>
+                </template>
+              </UiConfirm>
             </section>
           </aside>
-        </section>
-
-        <section class="document-panel">
-          <p class="meta-label">Skill 文档</p>
-          <MdPreview
-            :model-value="detail.skillMd || '未找到 SKILL.md'"
-            preview-theme="default"
-          />
-        </section>
-      </div>
-    </n-spin>
+        </div>
+    </template>
   </div>
 </template>
 
 <style scoped>
-.detail-page {
-  gap: 0.75rem;
+.detail-page { width: 100%; max-width: var(--content-max-width); margin: 0 auto; padding: 1.5rem 2rem 3rem; }
+
+/* Header */
+.detail-header { padding-bottom: 1.25rem;  }
+.header-top { display: flex; align-items: center; justify-content: flex-end; margin-bottom: .75rem; }
+.header-tags { display: flex; gap: .375rem; }
+.tag { border-radius: 999px; background: var(--color-paper-2); padding: .15rem .55rem; color: var(--color-muted); font-size: var(--text-xs); font-weight: 550; }
+.tag--ok { background: var(--color-success-soft); color: var(--color-success); }
+.detail-header h1 { margin: 0; color: var(--color-ink); font-size: var(--text-2xl); font-weight: 700; letter-spacing: -.025em; word-break: break-all; }
+.header-desc { margin: .3rem 0 0; color: var(--color-muted); font-size: var(--text-sm); line-height: 1.5; max-width: 52rem; }
+.header-metrics { display: flex; align-items: center; gap: .75rem; margin-top: .75rem; }
+.metric-item { display: inline-flex; align-items: center; gap: .35rem; color: var(--color-ink); font-size: var(--text-sm); font-weight: 600; }
+.metric-item em { color: var(--color-faint); font-size: var(--text-xs); font-style: normal; font-weight: 500; }
+.metric-sep { width: 1px; height: .85rem; background: var(--color-rule-strong); }
+
+/* Two-column layout */
+.detail-body { display: grid; grid-template-columns: minmax(0, 1fr) 20rem; gap: 2rem; align-items: start; margin-top: 1.25rem; }
+
+/* Left: file browser */
+.detail-main { min-width: 0; }
+
+/* Right: sidebar */
+.detail-sidebar { display: grid; gap: 0; position: sticky; top: 1rem; }
+.sidebar-section { padding: 1.1rem 0; border-bottom: 1px solid var(--color-rule); }
+.sidebar-section:first-child { padding-top: 0; }
+.sidebar-section:last-child { border-bottom: 0; }
+.sidebar-section--danger .sidebar-title { color: var(--color-danger); }
+.sidebar-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: .625rem; }
+.sidebar-head h2, .sidebar-title { margin: 0; color: var(--color-ink); font-size: var(--text-base); font-weight: 650; }
+.sidebar-subtitle { margin: .75rem 0 .35rem; color: var(--color-ink-2); font-size: var(--text-xs); font-weight: 600; }
+.sidebar-desc { margin: .25rem 0 .5rem; color: var(--color-muted); font-size: var(--text-xs); line-height: 1.5; }
+.sidebar-actions { display: flex; gap: .5rem; }
+
+/* Agent list */
+.agent-list { display: flex; flex-wrap: wrap; gap: .5rem; }
+.agent-chip { display: grid; place-items: center; border: 0; border-radius: var(--radius-sm); background: transparent; padding: 3px; cursor: pointer; transition: background var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out); }
+.agent-chip:hover { background: var(--color-paper-2); transform: translateY(-1px); }
+.agent-chip :deep(.agent-brand-icon) { filter: grayscale(1); opacity: .38; transition: filter var(--dur-fast), opacity var(--dur-fast); }
+.agent-chip--deployed :deep(.agent-brand-icon) { filter: none; opacity: 1; }
+.empty-hint { margin: 0; color: var(--color-faint); font-size: var(--text-xs); }
+
+/* Backup */
+.backup-list { display: grid; gap: .2rem; margin: 0; padding: 0; list-style: none; }
+.backup-list li { display: flex; justify-content: space-between; gap: .5rem; color: var(--color-muted); font-family: var(--font-mono); font-size: var(--text-xs); }
+
+/* Loading */
+.detail-loading { display: grid; place-items: center; padding: 4rem 0; }
+.spinner { width: 1.25rem; height: 1.25rem; border: 2px solid var(--color-rule); border-top-color: var(--color-accent); border-radius: 50%; animation: spin .6s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* Icon sizes */
+.icon-12 { width: 12px; height: 12px; }
+.icon-13 { width: 13px; height: 13px; }
+
+/* Responsive */
+@media (max-width: 60rem) {
+  .detail-body { grid-template-columns: 1fr; }
+  .detail-sidebar { position: static; }
 }
-.detail-topline,
-.skill-header,
-.section-heading,
-.header-actions {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 0.7rem;
-}
-.detail-topline {
-  align-items: center;
-}
-.skill-header {
-  padding-block: 0.1rem;
-}
-.header-actions {
-  flex-wrap: wrap;
-  justify-content: flex-end;
-}
-.overview-grid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  overflow: hidden;
-  border: 1px solid var(--color-rule);
-  border-radius: 0.72rem;
-  background: var(--color-paper);
-  box-shadow: var(--shadow-xs);
-}
-.overview-item {
-  display: grid;
-  min-width: 0;
-  gap: 0.22rem;
-  border-right: 1px solid var(--color-rule);
-  padding: 0.72rem 0.8rem;
-}
-.overview-item:last-child {
-  border-right: 0;
-}
-.overview-item strong {
-  color: var(--color-ink);
-  font-size: 0.95rem;
-  letter-spacing: -0.04em;
-}
-.overview-item span {
-  overflow: hidden;
-  color: var(--color-muted);
-  font-size: 0.75rem;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.distribution {
-  display: grid;
-  gap: 0.75rem;
-  border: 1px solid var(--color-rule);
-  border-radius: 0.72rem;
-  background: var(--color-paper);
-  padding: 0.8rem;
-  box-shadow: var(--shadow-xs);
-}
-.section-heading h2,
-.update-panel h2,
-.backup-panel h2,
-.danger-panel h2 {
-  margin: 0.12rem 0;
-  color: var(--color-ink);
-  font-size: 0.76rem;
-  letter-spacing: -0.025em;
-}
-.section-heading p:not(.meta-label),
-.update-panel p:not(.meta-label),
-.danger-panel p {
-  margin: 0;
-  color: var(--color-muted);
-  font-size: 0.75rem;
-}
-.distribution-workspace {
-  display: grid;
-  gap: 0.7rem;
-}
-.distribution-form {
-  display: grid;
-  align-content: start;
-  gap: 0.55rem;
-  border: 1px solid var(--color-rule);
-  border-radius: 0.6rem;
-  background: var(--color-paper-2);
-  padding: 0.65rem;
-}
-.agent-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(7.25rem, 1fr));
-  gap: 0.38rem;
-}
-.agent-state {
-  display: flex;
-  min-height: 3.25rem;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.35rem;
-  border: 1px solid var(--color-rule);
-  border-radius: 0.55rem;
-  background: var(--color-paper);
-  padding: 0.52rem 0.58rem;
-}
-.agent-state--active {
-  border-color: color-mix(in srgb, var(--color-success) 55%, var(--color-rule));
-  background: var(--color-success-soft);
-}
-.agent-state strong,
-.agent-state span {
-  display: block;
-}
-.agent-state strong {
-  color: var(--color-ink);
-  font-size: 0.75rem;
-}
-.agent-state span {
-  margin-top: 0.1rem;
-  color: var(--color-muted);
-  font-size: 0.75rem;
-}
-.maintenance-grid {
-  display: grid;
-  gap: 0.7rem;
-}
-.maintenance-main,
-.maintenance-aside {
-  display: grid;
-  align-content: start;
-  gap: 0.7rem;
-}
-.update-panel,
-.backup-panel,
-.danger-panel {
-  display: grid;
-  gap: 0.5rem;
-  border: 1px solid var(--color-rule);
-  border-radius: 0.72rem;
-  background: var(--color-paper);
-  padding: 0.8rem;
-  box-shadow: var(--shadow-xs);
-}
-.backup-panel ul {
-  display: grid;
-  gap: 0.3rem;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-.backup-panel li {
-  display: flex;
-  justify-content: space-between;
-  gap: 0.5rem;
-  color: var(--color-muted);
-  font-family: var(--font-mono);
-  font-size: 0.75rem;
-}
-.danger-panel {
-  border-color: color-mix(in srgb, var(--color-danger) 28%, var(--color-rule));
-  background: var(--color-danger-soft);
-}
-.document-panel {
-  overflow: hidden;
-  border: 1px solid var(--color-rule);
-  border-radius: 0.72rem;
-  background: var(--color-paper);
-  box-shadow: var(--shadow-xs);
-}
-.document-panel > .meta-label {
-  display: block;
-  border-bottom: 1px solid var(--color-rule);
-  padding: 0.62rem 0.75rem;
-}
-.document-panel :deep(.md-editor-preview) {
-  padding: 0.8rem;
-  background: transparent;
-}
-@media (min-width: 60rem) {
-  .distribution-workspace {
-    grid-template-columns: minmax(16rem, 0.55fr) minmax(0, 1.45fr);
-  }
-  .maintenance-grid {
-    grid-template-columns: minmax(0, 1.4fr) minmax(17rem, 0.6fr);
-  }
-}
-@media (max-width: 48rem) {
-  .overview-grid {
-    grid-template-columns: 1fr;
-  }
-  .overview-item {
-    border-right: 0;
-    border-bottom: 1px solid var(--color-rule);
-  }
-  .overview-item:last-child {
-    border-bottom: 0;
-  }
-}
-@media (max-width: 39.99rem) {
-  .skill-header,
-  .section-heading {
-    align-items: stretch;
-    flex-direction: column;
-  }
-  .header-actions {
-    justify-content: flex-start;
-  }
-  .agent-grid {
-    grid-template-columns: 1fr 1fr;
-  }
-}
-.detail-page {
-  gap: 1.5rem;
-}
-.detail-content {
-  display: grid;
-  gap: 1.25rem;
-}
-.skill-header {
-  padding-block: 0.25rem 0.5rem;
-}
-.overview-item {
-  gap: 0.35rem;
-  padding: 1rem 1.1rem;
-}
-.overview-item strong {
-  font-size: 1.15rem;
-}
-.overview-item span {
-  font-size: 0.75rem;
-}
-.distribution {
-  gap: 1.1rem;
-  padding: 1.1rem;
-}
-.section-heading h2,
-.update-panel h2,
-.backup-panel h2,
-.danger-panel h2 {
-  font-size: 0.95rem;
-}
-.section-heading p:not(.meta-label),
-.update-panel p:not(.meta-label),
-.danger-panel p {
-  font-size: 0.75rem;
-}
-.distribution-workspace {
-  gap: 1rem;
-}
-.distribution-form {
-  gap: 0.8rem;
-  padding: 0.85rem;
-}
-.agent-grid {
-  gap: 0.6rem;
-}
-.agent-state {
-  min-height: 3.8rem;
-  padding: 0.7rem 0.75rem;
-}
-.agent-state strong {
-  font-size: 0.75rem;
-}
-.agent-state span {
-  font-size: 0.75rem;
-}
-.maintenance-grid,
-.maintenance-main,
-.maintenance-aside {
-  gap: 1.25rem;
-}
-.update-panel,
-.backup-panel,
-.danger-panel {
-  gap: 0.7rem;
-  padding: 1.05rem;
-}
-.backup-panel li {
-  font-size: 0.75rem;
-}
-.document-panel > .meta-label {
-  padding: 0.85rem 1rem;
-}
-.document-panel :deep(.md-editor-preview) {
-  padding: 1.15rem;
-}
+</style>
+
+<style>
+/* Agent popover (teleported, must be unscoped) */
+.agent-popover { z-index: 9999; width: 13rem; border: 1px solid var(--color-rule-strong); border-radius: var(--radius-md); background: var(--color-paper-raised); box-shadow: var(--shadow-lg); padding: .75rem;gap: .5rem; animation: popover-in 120ms var(--ease-out); }
+.popover-head { display: flex; align-items: center; gap: .5rem; }
+.popover-head strong { color: var(--color-ink); font-size: var(--text-base); font-weight: 600; }
+.popover-dir { font-family: var(--font-mono); font-size: var(--text-sm); color: var(--color-faint); word-break: break-all; line-height: 1.4; }
+.popover-action { width: 100%; font-size: .7rem !important; }
+.popover-arrow { fill: var(--color-paper-raised); }
+@keyframes popover-in { from { opacity: 0; transform: scale(.96) translateY(-2px); } to { opacity: 1; transform: scale(1) translateY(0); } }
 </style>

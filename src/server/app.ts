@@ -178,6 +178,80 @@ app.get('/api/skill/detail', (c) => {
   }
 });
 
+// ─── Skill 文件列表 ─────────────────────────────────
+app.get('/api/skill/files', (c) => {
+  try {
+    const name = c.req.query('name') ?? '';
+    if (!name) return c.json({ error: '缺少查询参数 name' }, 400);
+
+    const root = skillRepoPath(name);
+    if (!fs.existsSync(root)) return c.json({ error: `Skill 未找到: ${name}` }, 404);
+
+    const IGNORED = new Set(['.backup', 'node_modules', '.git']);
+
+    interface FileEntry { name: string; path: string; type: 'file' | 'directory'; size?: number; children?: FileEntry[] }
+
+    function walk(dir: string, relative: string): FileEntry[] {
+      const entries = fs.readdirSync(dir, { withFileTypes: true });
+      const result: FileEntry[] = [];
+      for (const entry of entries) {
+        if (IGNORED.has(entry.name) || entry.name.startsWith('.')) continue;
+        const rel = relative ? `${relative}/${entry.name}` : entry.name;
+        if (entry.isDirectory()) {
+          result.push({ name: entry.name, path: rel, type: 'directory', children: walk(path.join(dir, entry.name), rel) });
+        } else {
+          const stat = fs.statSync(path.join(dir, entry.name));
+          result.push({ name: entry.name, path: rel, type: 'file', size: stat.size });
+        }
+      }
+      // directories first, then alphabetical
+      result.sort((a, b) => (a.type === b.type ? a.name.localeCompare(b.name) : a.type === 'directory' ? -1 : 1));
+      return result;
+    }
+
+    return c.json({ files: walk(root, '') });
+  } catch (e) {
+    return apiError(c, e);
+  }
+});
+
+// ─── Skill 单文件内容 ───────────────────────────────
+app.get('/api/skill/file', (c) => {
+  try {
+    const name = c.req.query('name') ?? '';
+    const filePath = c.req.query('path') ?? '';
+    if (!name || !filePath) return c.json({ error: '缺少查询参数 name 或 path' }, 400);
+
+    // Prevent path traversal
+    if (filePath.includes('..') || path.isAbsolute(filePath)) {
+      return c.json({ error: '非法路径' }, 400);
+    }
+
+    const root = skillRepoPath(name);
+    const fullPath = path.join(root, filePath);
+
+    // Ensure resolved path is still within skill root
+    if (!fullPath.startsWith(root + path.sep) && fullPath !== root) {
+      return c.json({ error: '非法路径' }, 400);
+    }
+
+    if (!fs.existsSync(fullPath) || fs.statSync(fullPath).isDirectory()) {
+      return c.json({ error: '文件未找到' }, 404);
+    }
+
+    const stat = fs.statSync(fullPath);
+    // Limit file size to 512KB for text preview
+    if (stat.size > 512 * 1024) {
+      return c.json({ error: '文件过大，无法预览', size: stat.size }, 413);
+    }
+
+    const content = fs.readFileSync(fullPath, 'utf-8');
+    return c.json({ path: filePath, content, size: stat.size });
+  } catch (e) {
+    return apiError(c, e);
+  }
+});
+
 // ─── 搜索 ─────────────────────────────────────────
 app.get('/api/search', async (c) => {
   try {
